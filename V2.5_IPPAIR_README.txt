@@ -1,0 +1,56 @@
+KORVO GATEWAY V2.5.1 - SIMPLE IP PAIRING
+=========================================
+
+Goal
+----
+Replace the V2.4 Pair ID / Pair Key / HMAC / enrollment-window flow with the
+simple reciprocal-IP rule requested for the KORVO system.
+
+Authorization rule
+------------------
+1. Gateway stores exactly one KORVO IPv4 address.
+2. KORVO stores exactly one Gateway IPv4 address.
+3. KORVO opens ws://<configured-gateway-ip>/ws/korvo.
+4. Gateway accepts that WebSocket only when its TCP source IPv4 is exactly the
+   configured KORVO IP.
+5. Only that live admitted session sets PAIRED / CONTROL OK and enables remote
+   field-changing commands (door, beacon, Wiegand, SIP actions).
+
+Not authorization inputs
+------------------------
+- MAC
+- BSSID
+- Name
+- Hostname / Sala
+- Location
+- Pair ID
+- Pair Key
+
+Those identity fields may still exist internally or in diagnostics for backward
+source/NVS compatibility, but they do not authorize GPIO/control.
+
+UI changes
+----------
+- No Arm 120s.
+- No Pair ID.
+- No Pair Key.
+- No editable Enrolled MAC.
+- KORVO Pairing has one operational field: KORVO IP.
+- SAVE KORVO IP persists only that IP; it does not depend on discovery.
+- VERIFY is optional and probes only the configured IP.
+- MAC shown elsewhere is diagnostic only.
+
+Laboratory values
+-----------------
+- Gateway management IP: 192.168.10.51 (existing configuration/NVS)
+- Initial KORVO IP suggestion in the form: 192.168.10.50
+These are laboratory defaults/suggestions, not hardcoded operational peer rules.
+
+Migration
+---------
+Existing V2.4 Pair ID / Pair Key values are ignored and cleared on V2.5 save.
+Do NOT erase NVS unless intentionally resetting all device configuration.
+
+Build status
+------------
+Source candidate prepared for local build. No ESP-IDF build was performed here.

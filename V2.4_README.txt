@@ -1,0 +1,11 @@
+KORVO GATEWAY V2.4 INTEGRATION FREEZE
+
+- Do not erase NVS if you want to keep the current laboratory Gateway management IP (192.168.10.51) and bridge settings.
+- 192.168.10.50 is only the initial commissioning value shown for a new KORVO enrollment target.
+- After enrollment, all KORVO checks use the peer IP/MAC/identity stored in NVS for this node.
+- No normal-operation network scan is used.
+- Gateway status and WiFi RSSI are bound to the enrolled KORVO MAC.
+- KORVO-initiated pairing requires an operator-armed 120-second enrollment window.
+- /ws/korvo is enabled and requires enrolled IP + enrolled WiFi MAC + HMAC pair authentication before CONTROL OK.
+- Real SIP/RTP and Bluetooth HFP engines are still pending; their configuration/status/simulation remain available.
+- This package was NOT built here. Build locally with ESP-IDF 5.3.1.

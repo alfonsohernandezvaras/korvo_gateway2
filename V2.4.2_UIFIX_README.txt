@@ -1,0 +1,7 @@
+Gateway V2.4.2 UI input persistence fix
+
+Fixes the Enrollment / Local Identity form being overwritten by the 3-second status refresh while the operator is typing.
+Editable fields are now marked dirty and are not replaced by polling until a successful save/clear.
+Candidate-discovered values are also protected from polling until saved.
+No NVS erase required.
+No build was performed by the assistant.

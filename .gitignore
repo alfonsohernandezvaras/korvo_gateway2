@@ -1,0 +1,17 @@
+build/**
+build_eth_sta/**
+build_w5500_c3/**
+.pio*
+.vscode
+.vscode/*
+sdkconfig
+sdkconfig.*
+..mcp.json.swp
+.mcp.json
+__pycache__/*
+managed_components/
+dependencies.lock
+.gemini/
+sdkconfig.old
+!sdkconfig.defaults
+!sdkconfig.defaults.*
