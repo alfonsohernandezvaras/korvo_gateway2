@@ -649,35 +649,35 @@ void app_main(void)
 
     // Load config from NVS
     get_config_param_str("static_ip", &static_ip);
-    if (static_ip == NULL) static_ip = param_set_default("");
+    if (static_ip == NULL) static_ip = param_set_default("192.168.10.51");
     get_config_param_str("subnet_mask", &subnet_mask);
-    if (subnet_mask == NULL) subnet_mask = param_set_default("");
+    if (subnet_mask == NULL) subnet_mask = param_set_default("255.255.255.0");
     get_config_param_str("gateway_addr", &gateway_addr);
-    if (gateway_addr == NULL) gateway_addr = param_set_default("");
+    if (gateway_addr == NULL) gateway_addr = param_set_default("192.168.10.1");
 
     get_config_param_blob("ap_mac", &ap_mac, 6);
     get_config_param_str("ap_ssid", &ap_ssid);
-    if (ap_ssid == NULL) ap_ssid = param_set_default(DEFAULT_HOSTNAME);
+    if (ap_ssid == NULL) ap_ssid = param_set_default("KORVO ROUTER");
     get_config_param_str("ap_passwd", &ap_passwd);
-    if (ap_passwd == NULL) ap_passwd = param_set_default("");
+    if (ap_passwd == NULL) ap_passwd = param_set_default("Sill123123");
     get_config_param_str("ap_dns", &ap_dns);
     if (ap_dns == NULL) ap_dns = param_set_default("");
     get_config_param_str("hostname", &hostname);
-    if (hostname == NULL || hostname[0] == '\0') hostname = param_set_default(DEFAULT_HOSTNAME);
+    if (hostname == NULL) hostname = param_set_default("KORVO-GATEWAY2");
 
     // Load DHCP server config from NVS
     {
         int dhcps_en = 0;
-        if (get_config_param_int("dhcps_enabled", &dhcps_en) == ESP_OK) dhcps_enabled = (dhcps_en != 0);
+        dhcps_enabled = (get_config_param_int("dhcps_enabled", &dhcps_en) == ESP_OK) ? (dhcps_en != 0) : true;
         get_config_param_str("dhcps_start_ip", &dhcps_start_ip);
-        if (!dhcps_start_ip) dhcps_start_ip = param_set_default("");
+        if (!dhcps_start_ip) dhcps_start_ip = param_set_default("192.168.10.100");
         get_config_param_str("dhcps_end_ip", &dhcps_end_ip);
-        if (!dhcps_end_ip)   dhcps_end_ip   = param_set_default("");
+        if (!dhcps_end_ip)   dhcps_end_ip   = param_set_default("192.168.10.180");
         int dhcps_lease = 120;
         if (get_config_param_int("dhcps_lease", &dhcps_lease) == ESP_OK && dhcps_lease > 0)
             dhcps_lease_min = (uint32_t)dhcps_lease;
         get_config_param_str("dhcps_dns", &dhcps_dns_ip);
-        if (!dhcps_dns_ip)   dhcps_dns_ip   = param_set_default("");
+        if (!dhcps_dns_ip)   dhcps_dns_ip   = param_set_default("192.168.10.1");
         if (dhcps_enabled)
             ESP_LOGI(TAG, "DHCP server enabled: pool %s-%s, lease %lu min",
                      dhcps_start_ip, dhcps_end_ip, (unsigned long)dhcps_lease_min);
@@ -706,6 +706,7 @@ void app_main(void)
     }
 
     // Load AP auth mode
+    ap_authmode = 1; /* WPA2 default only when NVS key is absent */
     int authmode_setting = 0;
     if (get_config_param_int("ap_authmode", &authmode_setting) == ESP_OK) {
         if (authmode_setting >= 0 && authmode_setting <= 2) {
@@ -714,6 +715,7 @@ void app_main(void)
     }
 
     // Load AP channel
+    ap_channel = 6; /* default only when NVS key is absent */
     int channel_setting = 0;
     if (get_config_param_int("ap_channel", &channel_setting) == ESP_OK) {
         if (channel_setting >= 1 && channel_setting <= 13) ap_channel = (uint8_t)channel_setting;
@@ -732,6 +734,12 @@ void app_main(void)
         }
         ESP_LOGI(TAG, "WiFi country code: %s", wifi_country_code);
     }
+
+    /* V4: la configuracion operativa procede exclusivamente de NVS.
+     * No sobrescribir en RAM hostname, SSID, IP, DHCP ni canal.
+     * Los valores por defecto se aplican solamente si no existe una clave NVS. */
+    ESP_LOGI(TAG, "NVS config: hostname='%s' SSID='%s' IP='%s' DHCP=%d",
+             hostname, ap_ssid, static_ip, (int)dhcps_enabled);
 
     // Initialize bridge
     bridge_init(static_ip, subnet_mask, gateway_addr, ap_mac, ap_ssid, ap_passwd);

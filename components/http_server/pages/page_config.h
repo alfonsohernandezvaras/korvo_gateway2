@@ -61,7 +61,7 @@ setTimeout(\"location.href = '/'\", 10000);\
 /* AP Settings section - uses: ap_ssid, ap_channel, auth_sel0/1/2, ap_en_checked, open_checked, hidden_checked */
 #define CONFIG_CHUNK_AP "\
 <h2>Access Point Settings</h2>\
-<form action='' method='GET'>\
+<form action='' method='POST'>\
 <table>\
 <tr><td>SSID</td><td><input type='text' name='ap_ssid' value='%s' placeholder='Network name'/></td></tr>\
 <tr><td>Password</td><td><input type='text' id='ap_pw' name='ap_password' placeholder='unchanged' oninput=\"document.getElementById('ap_op').checked=false;\"/></td></tr>\
@@ -77,7 +77,7 @@ setTimeout(\"location.href = '/'\", 10000);\
 /* Management IP section - uses: static_ip, subnet_mask, gateway */
 #define CONFIG_CHUNK_MGMT_IP "\
 <h2>Management IP</h2>\
-<form action='' method='GET'>\
+<form action='' method='POST'>\
 <table>\
 <tr><td>Static IP</td><td><input type='text' name='staticip' value='%s' placeholder='192.168.4.1'/></td></tr>\
 <tr><td>Subnet Mask</td><td><input type='text' name='subnetmask' value='%s' placeholder='255.255.255.0'/></td></tr>\
@@ -90,7 +90,7 @@ setTimeout(\"location.href = '/'\", 10000);\
 /* DHCP Server section - uses: dhcps_en_chk, dhcps_dis_chk, dhcps_start, dhcps_end, dhcps_lease, dhcps_dns */
 #define CONFIG_CHUNK_DHCPS "\
 <h2>DHCP Server</h2>\
-<form action='' method='GET'>\
+<form action='' method='POST'>\
 <input type='hidden' name='dhcps_save' value='1'/>\
 <table>\
 <tr><td>Service</td><td>\
@@ -104,16 +104,6 @@ setTimeout(\"location.href = '/'\", 10000);\
 <tr><td></td><td><input type='submit' value='Save &amp; Reboot' class='ok-button'/></td></tr>\
 </table>\
 <small>Requires static management IP. Disable your upstream DHCP server to avoid conflicts.</small>\
-</form>"
-
-/* Hostname section - uses: hostname */
-#define CONFIG_CHUNK_HOSTNAME "\
-<h2>Hostname</h2>\
-<form action='' method='GET'>\
-<table>\
-<tr><td>Hostname</td><td><input type='text' name='hostname' value='%s' placeholder='%s'/></td></tr>\
-<tr><td></td><td><input type='submit' value='Save &amp; Reboot' class='ok-button'/></td></tr>\
-</table>\
 </form>"
 
 /* PCAP Capture section - uses: pcap_off_chk, pcap_on_chk, pcap_snaplen, bridge_ip */
@@ -158,7 +148,7 @@ setTimeout(\"location.href = '/'\", 10000);\
 <h2>Gateway V2.5 / Simple IP Pairing</h2>\
 <div class='gw-grid'>\
 <div class='gw-panel'><h3 style='color:#ffb300;margin-bottom:.75rem'>Local Identity</h3>\
-<table><tr><td>Gateway Name</td><td><input id='gwLocalName' type='text'></td></tr><tr><td>Location</td><td><input id='gwLocation' type='text'></td></tr><tr><td>Host / Sala Tag</td><td><span id='gwLocalHost'></span></td></tr><tr><td>IP</td><td><span id='gwLocalIp'></span></td></tr><tr><td>MAC</td><td><span id='gwLocalMac'></span></td></tr></table>\
+<table><tr><td>Gateway Name</td><td><input id='gwLocalName' type='text'></td></tr><tr><td>Location</td><td><input id='gwLocation' type='text'></td></tr><tr><td>Hostname</td><td><input id='gwLocalHost' type='text' maxlength='32'></td></tr><tr><td>IP</td><td><span id='gwLocalIp'></span></td></tr><tr><td>MAC</td><td><span id='gwLocalMac'></span></td></tr></table>\
 <div style='margin-top:.75rem'><button type='button' class='ok-button' style='width:auto' onclick='gwSaveLocal()'>Save Local Identity</button></div></div>\
 <div class='gw-panel'><h3 style='color:#ffb300;margin-bottom:.75rem'>KORVO Pairing</h3>\
 <table><tr><td>KORVO IP</td><td><input id='gwPeerIp' type='text' value='192.168.10.50'></td></tr><tr><td>Detected Name</td><td><span id='gwPeerName'>-</span></td></tr><tr><td>Hostname / Sala</td><td><span id='gwPeerHost'>-</span></td></tr><tr><td>Location</td><td><span id='gwPeerLocation'>-</span></td></tr><tr><td>Live source IP</td><td><span id='gwObservedIp'>-</span></td></tr></table>\
@@ -167,15 +157,15 @@ setTimeout(\"location.href = '/'\", 10000);\
 <small>V2.5 uses only reciprocal IP configuration for control. MAC, hostname and location are diagnostic only. CONTROL becomes OK when a WebSocket arrives from the configured KORVO IP.</small></div>\
 </div>\
 <script>\
-var gwEditableIds=['gwLocalName','gwLocation','gwPeerIp'];\
+var gwEditableIds=['gwLocalName','gwLocation','gwLocalHost','gwPeerIp'];\
 function gwSetInput(id,v){var el=document.getElementById(id);if(!el)return;if(document.activeElement===el||el.dataset.dirty==='1')return;el.value=v||'';}\
 function gwClearDirty(ids){ids.forEach(function(id){var el=document.getElementById(id);if(el)delete el.dataset.dirty;});}\
 function gwInitEditable(){gwEditableIds.forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',function(){this.dataset.dirty='1';});});}\
-async function gwLoadEnrollment(){try{var r=await fetch('/api/gw/status',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);var j=await r.json(),d=j.data||{},e=d.enrollment||{},l=e.local||{},p=e.expected_peer||{},o=e.observed_peer||{};gwSetInput('gwLocalName',l.name||'');gwSetInput('gwLocation',l.location||'');document.getElementById('gwLocalHost').textContent=l.hostname||'-';document.getElementById('gwLocalIp').textContent=l.ip||'-';document.getElementById('gwLocalMac').textContent=l.mac||'-';if(p.ip)gwSetInput('gwPeerIp',p.ip);document.getElementById('gwPeerName').textContent=o.name||p.name||'-';document.getElementById('gwPeerHost').textContent=o.hostname||p.hostname||'-';document.getElementById('gwPeerLocation').textContent=o.location||p.location||'-';document.getElementById('gwObservedIp').textContent=o.ip||'-';var paired=e.paired?'PAIRED':'NOT PAIRED';var pc=e.control_ok?'CONTROL OK':'CONTROL BLOCKED';document.getElementById('gwEnrollState').innerHTML='Configured KORVO: <b>'+(p.ip||'-')+'</b> · State: <b style=color:'+(e.gateway_ok?'#4caf50':'#ffb300')+'>'+paired+'</b><br>Live IP match: <b style=color:'+(e.session_ip_ok?'#4caf50':'#ff5252')+'>'+(e.session_ip_ok?'YES':'NO')+'</b> · <b style=color:'+(e.control_ok?'#4caf50':'#ff5252')+'>'+pc+'</b>';}catch(x){document.getElementById('gwEnrollState').textContent='Pairing status unavailable: '+x.message;}}\
-async function gwSaveLocal(){var p=new URLSearchParams({action:'local',local_name:document.getElementById('gwLocalName').value,location:document.getElementById('gwLocation').value});var r=await fetch('/api/gw/enrollment',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p});var j=await r.json();if(!j.ok){alert('Error: '+(j.error||'unknown'));return;}gwClearDirty(['gwLocalName','gwLocation']);gwLoadEnrollment();}\
+async function gwLoadEnrollment(){try{var r=await fetch('/api/gw/status',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);var j=await r.json(),d=j.data||{},e=d.enrollment||{},l=e.local||{},p=e.expected_peer||{},o=e.observed_peer||{};gwSetInput('gwLocalName',l.name||'');gwSetInput('gwLocation',l.location||'');gwSetInput('gwLocalHost',l.hostname||'');document.getElementById('gwLocalIp').textContent=l.ip||'-';document.getElementById('gwLocalMac').textContent=l.mac||'-';if(p.ip)gwSetInput('gwPeerIp',p.ip);document.getElementById('gwPeerName').textContent=o.name||p.name||'-';document.getElementById('gwPeerHost').textContent=o.hostname||p.hostname||'-';document.getElementById('gwPeerLocation').textContent=o.location||p.location||'-';document.getElementById('gwObservedIp').textContent=o.ip||'-';var paired=e.paired?'PAIRED':'NOT PAIRED';var pc=e.control_ok?'CONTROL OK':'CONTROL BLOCKED';document.getElementById('gwEnrollState').innerHTML='Configured KORVO: <b>'+(p.ip||'-')+'</b> · State: <b style=color:'+(e.gateway_ok?'#4caf50':'#ffb300')+'>'+paired+'</b><br>Live IP match: <b style=color:'+(e.session_ip_ok?'#4caf50':'#ff5252')+'>'+(e.session_ip_ok?'YES':'NO')+'</b> · <b style=color:'+(e.control_ok?'#4caf50':'#ff5252')+'>'+pc+'</b>';}catch(x){document.getElementById('gwEnrollState').textContent='Pairing status unavailable: '+x.message;}}\
+async function gwSaveLocal(){var p=new URLSearchParams({action:'local',local_name:document.getElementById('gwLocalName').value,location:document.getElementById('gwLocation').value,hostname:document.getElementById('gwLocalHost').value});var r=await fetch('/api/gw/enrollment',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p});var j=await r.json();if(!j.ok){alert('Error: '+(j.error||'unknown'));return;}gwClearDirty(['gwLocalName','gwLocation','gwLocalHost']);if(j.reboot){alert('Guardado. El Gateway se reiniciara para aplicar el hostname.');setTimeout(function(){location.reload();},10000);}else{gwLoadEnrollment();}}\
 async function gwSaveIp(){var ip=document.getElementById('gwPeerIp').value.trim();var p=new URLSearchParams({action:'save_ip',peer_ip:ip});var r=await fetch('/api/gw/enrollment',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p});var j=await r.json();if(!j.ok){alert('Error: '+(j.error||'unknown'));return;}gwClearDirty(['gwPeerIp']);gwLoadEnrollment();}\
 async function gwVerify(){var box=document.getElementById('gwEnrollState');box.textContent='Verifying configured KORVO IP...';try{var r=await fetch('/api/gw/verify',{method:'POST'});var j=await r.json();if(!j.ok&&j.error){box.innerHTML='<b style=color:#ff5252>'+j.error+'</b>';return;}var q=j.probe||{},id=q.identity||{};box.innerHTML='KORVO <b>'+(j.target_ip||'-')+'</b> · '+((q.state||'').toUpperCase())+' · '+(id.name||id.hostname||'')+'<br>CONTROL becomes OK automatically when that same IP opens the KORVO WebSocket.';gwLoadEnrollment();}catch(x){box.textContent='Verify error: '+x.message;}}\
-async function gwClearEnrollment(){if(!confirm('Remove configured KORVO IP and block remote GPIO/control?'))return;var p=new URLSearchParams({action:'clear'});var r=await fetch('/api/gw/enrollment',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p});var j=await r.json();if(j.ok){gwClearDirty(['gwPeerIp']);document.getElementById('gwPeerIp').value='192.168.10.50';gwLoadEnrollment();}}gwInitEditable();gwLoadEnrollment();setInterval(gwLoadEnrollment,3000);\
+async function gwClearEnrollment(){if(!confirm('Remove configured KORVO IP and block remote GPIO/control?'))return;var p=new URLSearchParams({action:'clear'});var r=await fetch('/api/gw/enrollment',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p});var j=await r.json();if(j.ok){gwClearDirty(['gwPeerIp']);document.getElementById('gwPeerIp').value='192.168.10.50';gwLoadEnrollment();}}gwInitEditable();gwLoadEnrollment();\
 </script>\
 <h2>Device Management</h2>\
 <div id='mainContent'>\

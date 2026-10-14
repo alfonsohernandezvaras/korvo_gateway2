@@ -780,16 +780,33 @@ static esp_err_t config_get_handler(httpd_req_t *req)
     char*  buf;
     size_t buf_len;
 
-    /* Read URL query string length and allocate memory for length + 1 */
-    buf_len = httpd_req_get_url_query_len(req) + 1;
+    /* POST para configuraciones; GET conserva compatibilidad y renderiza pagina. */
+    bool is_post = req->method == HTTP_POST;
+    buf_len = is_post ? (size_t)req->content_len + 1 : httpd_req_get_url_query_len(req) + 1;
     if (buf_len > 1) {
+        if (buf_len > 2048) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Configuration request too large");
+            return ESP_FAIL;
+        }
         buf = malloc(buf_len);
         if (buf == NULL) {
-            ESP_LOGE(TAG, "Failed to allocate memory for query string");
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
             return ESP_ERR_NO_MEM;
         }
-        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+        bool read_ok = false;
+        if (is_post) {
+            size_t received = 0;
+            while (received < buf_len - 1) {
+                int n = httpd_req_recv(req, buf + received, buf_len - 1 - received);
+                if (n <= 0) break;
+                received += (size_t)n;
+            }
+            buf[received] = '\0';
+            read_ok = received == buf_len - 1;
+        } else {
+            read_ok = httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK;
+        }
+        if (read_ok) {
             ESP_LOGI(TAG, "Found URL query => %s", buf);
             char param1[64];
             char param2[64];
@@ -916,16 +933,37 @@ static esp_err_t config_get_handler(httpd_req_t *req)
                 }
             }
 
-            /* Handle hostname setting */
+            /* Gateway2 V2.1: hostname por sala, guardar/verificar antes de reiniciar. */
             if (httpd_query_key_value(buf, "hostname", param1, sizeof(param1)) == ESP_OK) {
                 preprocess_string(param1);
-                if (strlen(param1) > 0) {
-                    set_config_param_str("hostname", param1);
-                    free(hostname);
-                    hostname = strdup(param1);
-                    ESP_LOGI(TAG, "Hostname set to: %s", param1);
+                size_t n = strlen(param1);
+                bool valid = n > 0 && n <= 63 && param1[0] != '-' && param1[n - 1] != '-';
+                for (size_t i = 0; valid && i < n; ++i) {
+                    char c = param1[i];
+                    if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                          (c >= '0' && c <= '9') || c == '-')) valid = false;
                 }
-                esp_timer_start_once(restart_timer, 500000);
+                if (!valid) {
+                    free(buf);
+                    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Hostname invalido: letras, numeros y guiones (1-63)");
+                    return ESP_FAIL;
+                }
+                esp_err_t wr = set_config_param_str("hostname", param1);
+                char *check = NULL;
+                esp_err_t rd = get_config_param_str("hostname", &check);
+                bool ok = (wr == ESP_OK && rd == ESP_OK && check && strcmp(check, param1) == 0);
+                ESP_LOGI(TAG, "Hostname V2.1: write=%s read=%s requested=%s stored=%s",
+                         esp_err_to_name(wr), esp_err_to_name(rd), param1,
+                         check ? check : "(null)");
+                free(check);
+                if (!ok) {
+                    free(buf);
+                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Hostname no persistido en NVS");
+                    return ESP_FAIL;
+                }
+                char *updated = strdup(param1);
+                if (updated) { free(hostname); hostname = updated; }
+                esp_timer_start_once(restart_timer, 1500000);
             }
 
             /* Handle PCAP settings */
@@ -1150,10 +1188,8 @@ static esp_err_t config_get_handler(httpd_req_t *req)
         SEND_CHUNK(req, section, HTTPD_RESP_USE_STRLEN);
     }
 
-    /* Chunk 6: Hostname */
-    snprintf(section, sizeof(section), CONFIG_CHUNK_HOSTNAME,
-        hostname, hostname);
-    SEND_CHUNK(req, section, HTTPD_RESP_USE_STRLEN);
+    /* V4: el hostname se edita exclusivamente en Gateway / Local Identity.
+     * No duplicar formularios de configuracion de hostname. */
 
     /* Chunk 7: Remote Console */
     snprintf(section, sizeof(section), CONFIG_CHUNK_RC,
@@ -1224,6 +1260,11 @@ static httpd_uri_t configp = {
     .method    = HTTP_GET,
     .handler   = config_get_handler,
 };
+static httpd_uri_t config_postp = {
+    .uri       = "/config",
+    .method    = HTTP_POST,
+    .handler   = config_get_handler,
+};
 
 /* Called by httpd for every accepted connection. */
 static esp_err_t http_open_fn(httpd_handle_t hd, int sockfd)
@@ -1248,7 +1289,6 @@ httpd_handle_t start_webserver(uint16_t port)
     config.server_port = port;
     config.stack_size = 16384;
     config.max_uri_handlers = 32;
-    // config.max_uri_len = 1024;
     config.open_fn = http_open_fn;
     /* Fail a stalled send/recv fast (default 5s) so an abandoned connection
      * frees its socket and buffers quickly instead of pinning them; paired
@@ -1274,6 +1314,7 @@ httpd_handle_t start_webserver(uint16_t port)
         httpd_register_uri_handler(server, &indexp);
         httpd_register_uri_handler(server, &index_post);
         httpd_register_uri_handler(server, &configp);
+        httpd_register_uri_handler(server, &config_postp);
         httpd_register_uri_handler(server, &favicon_uri);
         httpd_register_uri_handler(server, &ota_uploadp);
 

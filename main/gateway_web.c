@@ -7,6 +7,8 @@
 #include "gateway_discovery.h"
 #include "gateway_ws.h"
 #include "http_server.h"
+#include "wifi_config.h"
+#include <ctype.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,7 +56,21 @@ static bool form_value(const char *body, const char *key, char *out, size_t out_
 {
     if (!body || !key || !out || !out_len) return false;
     out[0] = '\0';
-    return httpd_query_key_value(body, key, out, out_len) == ESP_OK;
+    if (httpd_query_key_value(body, key, out, out_len) != ESP_OK) return false;
+    /* application/x-www-form-urlencoded: + representa espacio y %HH un byte UTF-8. */
+    char *src = out, *dst = out;
+    while (*src) {
+        if (*src == '+') { *dst++ = ' '; ++src; }
+        else if (src[0] == '%' && isxdigit((unsigned char)src[1]) && src[1] &&
+                 src[2] && isxdigit((unsigned char)src[2])) {
+            unsigned int val = 0;
+            sscanf(src + 1, "%2x", &val);
+            if (val == 0) return false;
+            *dst++ = (char)val; src += 3;
+        } else { *dst++ = *src++; }
+    }
+    *dst = '\0';
+    return true;
 }
 
 static long form_long(const char *body, const char *key, long def)
@@ -95,12 +111,37 @@ static esp_err_t enrollment_post(httpd_req_t *req)
     gateway_enrollment_status_t cur;
     gateway_enrollment_get_status(&cur);
     if (!strcmp(action, "local")) {
-        char local_name[64] = {0}, location[64] = {0};
+        char local_name[64] = {0}, location[64] = {0}, new_host[64] = {0};
         form_value(body, "local_name", local_name, sizeof(local_name));
         form_value(body, "location", location, sizeof(location));
+        bool has_hostname = form_value(body, "hostname", new_host, sizeof(new_host));
         if (!local_name[0]) snprintf(local_name, sizeof(local_name), "%s", cur.local.device_name);
         if (!location[0]) snprintf(location, sizeof(location), "%s", cur.local.location);
-        gateway_enrollment_set_local_tags(local_name, location);
+        bool host_changed = has_hostname && strcmp(new_host, cur.local.hostname) != 0;
+        if (host_changed) {
+            size_t n = strlen(new_host);
+            if (!n || n > 32 || new_host[0] == '-' || new_host[n-1] == '-')
+                return send_json(req, "{\"ok\":false,\"error\":\"invalid_hostname\"}");
+            for (size_t i=0;i<n;i++) {
+                unsigned char c=(unsigned char)new_host[i];
+                if (!(isalnum(c) && c < 128) && c != '-')
+                    return send_json(req, "{\"ok\":false,\"error\":\"invalid_hostname\"}");
+            }
+            esp_err_t e = set_config_param_str("hostname", new_host);
+            char *verify = NULL;
+            esp_err_t v = get_config_param_str("hostname", &verify);
+            bool ok = (e == ESP_OK && v == ESP_OK && verify && strcmp(verify,new_host)==0);
+            free(verify);
+            if (!ok) return send_json(req, "{\"ok\":false,\"error\":\"hostname_nvs_failed\"}");
+        }
+        esp_err_t tags = gateway_enrollment_set_local_tags(local_name, location);
+        if (tags != ESP_OK) return send_json(req, "{\"ok\":false,\"error\":\"identity_nvs_failed\"}");
+        if (host_changed) {
+            /* Hostname de red e identidad se vuelven a leer de NVS en el arranque. */
+            extern esp_timer_handle_t restart_timer;
+            esp_timer_start_once(restart_timer, 1800000);
+            return send_json(req, "{\"ok\":true,\"reboot\":true}");
+        }
         return send_json(req, "{\"ok\":true}");
     }
 
@@ -339,13 +380,13 @@ static esp_err_t sip_api_post(httpd_req_t *req)
     gateway_sip_config_t c;
     gateway_sip_get_config(&c);
     char tmp[96];
-    if (form_value(body, "server", tmp, sizeof(tmp))) snprintf(c.server, sizeof(c.server), "%s", tmp);
+    if (form_value(body, "server", tmp, sizeof(tmp))) { if (strlen(tmp) >= sizeof(c.server)) return send_json(req, "{\"ok\":false,\"error\":\"server_too_long\"}"); strlcpy(c.server, tmp, sizeof(c.server)); }
     c.port = (uint16_t)form_long(body, "port", c.port ? c.port : 5060);
-    if (form_value(body, "extension", tmp, sizeof(tmp))) snprintf(c.extension, sizeof(c.extension), "%s", tmp);
-    if (form_value(body, "extension_name", tmp, sizeof(tmp))) snprintf(c.extension_name, sizeof(c.extension_name), "%s", tmp);
-    if (form_value(body, "password", tmp, sizeof(tmp)) && tmp[0]) snprintf(c.password, sizeof(c.password), "%s", tmp);
-    if (form_value(body, "central_extension", tmp, sizeof(tmp))) snprintf(c.central_extension, sizeof(c.central_extension), "%s", tmp);
-    if (form_value(body, "central_name", tmp, sizeof(tmp))) snprintf(c.central_name, sizeof(c.central_name), "%s", tmp);
+    if (form_value(body, "extension", tmp, sizeof(tmp))) { if (strlen(tmp) >= sizeof(c.extension)) return send_json(req, "{\"ok\":false,\"error\":\"extension_too_long\"}"); strlcpy(c.extension, tmp, sizeof(c.extension)); }
+    if (form_value(body, "extension_name", tmp, sizeof(tmp))) { if (strlen(tmp) >= sizeof(c.extension_name)) return send_json(req, "{\"ok\":false,\"error\":\"extension_name_too_long\"}"); strlcpy(c.extension_name, tmp, sizeof(c.extension_name)); }
+    if (form_value(body, "password", tmp, sizeof(tmp)) && tmp[0]) { if (strlen(tmp) >= sizeof(c.password)) return send_json(req, "{\"ok\":false,\"error\":\"password_too_long\"}"); strlcpy(c.password, tmp, sizeof(c.password)); }
+    if (form_value(body, "central_extension", tmp, sizeof(tmp))) { if (strlen(tmp) >= sizeof(c.central_extension)) return send_json(req, "{\"ok\":false,\"error\":\"central_extension_too_long\"}"); strlcpy(c.central_extension, tmp, sizeof(c.central_extension)); }
+    if (form_value(body, "central_name", tmp, sizeof(tmp))) { if (strlen(tmp) >= sizeof(c.central_name)) return send_json(req, "{\"ok\":false,\"error\":\"central_name_too_long\"}"); strlcpy(c.central_name, tmp, sizeof(c.central_name)); }
     if (form_value(body, "call_mode", tmp, sizeof(tmp))) c.call_mode = parse_call_mode(tmp);
     c.call_timeout_s = (uint32_t)form_long(body, "timeout_s", c.call_timeout_s ? c.call_timeout_s : 30);
     c.beacon_on_incoming = form_long(body, "beacon_on_incoming", 0) != 0;
