@@ -7,6 +7,12 @@
 #include "gateway_discovery.h"
 #include "gateway_ws.h"
 #include "http_server.h"
+#include "nvs.h"
+#include "router_config.h"
+#include "remote_console.h"
+#include "pcap_capture.h"
+#include "cmd_router.h"
+
 #include "wifi_config.h"
 #include <ctype.h>
 
@@ -93,6 +99,147 @@ static bool valid_ipv4_text(const char *ip)
 {
     struct in_addr a;
     return ip && ip[0] && inet_pton(AF_INET, ip, &a) == 1;
+}
+
+
+/* GATEWAY_UNIFIED_V5_20261014 - network fields committed in one NVS transaction.
+ * Identity/pairing use their existing gwv2 namespace; these are not an atomic
+ * cross-namespace transaction. No reboot on validation or network commit error. */
+static void gw_decode(char *s)
+{
+    char *r=s,*w=s;
+    while (*r) {
+        if (*r=='+' ) { *w++=' '; r++; }
+        else if (*r=='%' && isxdigit((unsigned char)r[1]) && isxdigit((unsigned char)r[2])) {
+            char h[3]={r[1],r[2],0}; *w++=(char)strtol(h,NULL,16); r+=3;
+        } else *w++=*r++;
+    }
+    *w=0;
+}
+static bool gw_field(const char *body,const char *key,char *dst,size_t cap)
+{
+    if (!form_value(body,key,dst,cap)) return false;
+    gw_decode(dst); return true;
+}
+static bool gw_int(const char *s,int min,int max,int *out)
+{
+    if (!s || !*s) return false;
+    char *end=NULL; long v=strtol(s,&end,10);
+    if (!end || *end || v<min || v>max) return false;
+    *out=(int)v; return true;
+}
+static bool gw_hostname_valid(const char *s)
+{
+    size_t n=strlen(s);
+    if (!n || n>32 || s[0]=='-' || s[n-1]=='-') return false;
+    for(size_t i=0;i<n;i++) if (!((s[i]>='a'&&s[i]<='z') || (s[i]>='A'&&s[i]<='Z') ||
+        (s[i]>='0'&&s[i]<='9') || s[i]=='-')) return false;
+    return true;
+}
+static bool gw_nvs_string_equals(const char *key,const char *want)
+{
+    char *actual=NULL;
+    esp_err_t e=get_config_param_str((char *)key,&actual);
+    bool same=e==ESP_OK && actual && strcmp(actual,want)==0;
+    free(actual); return same;
+}
+static esp_err_t gw_config_all_post(httpd_req_t *req)
+{
+    if (require_auth(req)!=ESP_OK) return ESP_OK;
+    char body[4096];
+    if (!recv_form(req,body,sizeof(body))) return send_json(req,"{\"ok\":false,\"error\":\"Solicitud demasiado larga\"}");
+    char ssid[96],passwd[96],host[64],name[64],location[64],ip[48],mask[48],gw[48],
+         start[48],end[48],dns[48],peer[48],cc[8],channel_s[16],auth_s[16],lease_s[16],dhcp_s[8],
+         enable_s[8],open_s[8],hidden_s[8],pcap_s[8],snap_s[16],rc_s[8],port_s[16],timeout_s[16],bind_ap_s[8],bind_eth_s[8];
+#define FIELD(k,v) do { if (!gw_field(body,k,v,sizeof(v))) return send_json(req,"{\"ok\":false,\"error\":\"Falta un campo de configuracion\"}"); } while(0)
+    FIELD("ap_ssid",ssid); FIELD("ap_password",passwd); FIELD("hostname",host);
+    FIELD("local_name",name); FIELD("location",location); FIELD("peer_ip",peer);
+    FIELD("staticip",ip); FIELD("subnetmask",mask); FIELD("gateway",gw);
+    FIELD("dhcps_start",start); FIELD("dhcps_end",end); FIELD("dhcps_dns",dns);
+    FIELD("wifi_cc",cc); FIELD("ap_channel",channel_s); FIELD("ap_auth",auth_s);
+    FIELD("dhcps_lease",lease_s); FIELD("dhcps_enabled",dhcp_s);
+    FIELD("ap_enable",enable_s); FIELD("ap_open",open_s); FIELD("ap_hidden",hidden_s);
+    FIELD("pcap_enabled",pcap_s); FIELD("pcap_snaplen",snap_s);
+    FIELD("rc_enabled",rc_s); FIELD("rc_port",port_s); FIELD("rc_timeout",timeout_s);
+    FIELD("rc_bind_ap",bind_ap_s); FIELD("rc_bind_eth",bind_eth_s);
+#undef FIELD
+    int channel,auth,lease,dhcp,en,open,hidden,pcap,snap,rc,port,timeout,bind_ap,bind_eth;
+    if (!strlen(ssid)||strlen(ssid)>32) return send_json(req,"{\"ok\":false,\"error\":\"SSID debe tener entre 1 y 32 bytes\"}");
+    if (!gw_hostname_valid(host)) return send_json(req,"{\"ok\":false,\"error\":\"Hostname invalido: use letras, numeros y guiones\"}");
+    if (!name[0] || !location[0]) return send_json(req,"{\"ok\":false,\"error\":\"Nombre y ubicacion son obligatorios\"}");
+    if (!valid_ipv4_text(peer)) return send_json(req,"{\"ok\":false,\"error\":\"IP de KORVO invalida\"}");
+    if ((ip[0] && !valid_ipv4_text(ip)) || (mask[0] && !valid_ipv4_text(mask)) ||
+        (gw[0] && !valid_ipv4_text(gw)) || (start[0] && !valid_ipv4_text(start)) ||
+        (end[0] && !valid_ipv4_text(end)) || (dns[0] && !valid_ipv4_text(dns)))
+        return send_json(req,"{\"ok\":false,\"error\":\"Una direccion IP no es valida\"}");
+    if (!gw_int(channel_s,0,13,&channel) || !gw_int(auth_s,0,2,&auth) ||
+        !gw_int(lease_s,1,14400,&lease) || !gw_int(dhcp_s,0,1,&dhcp) ||
+        !gw_int(enable_s,0,1,&en) || !gw_int(open_s,0,1,&open) ||
+        !gw_int(hidden_s,0,1,&hidden) || strlen(cc)!=2 ||
+        !gw_int(pcap_s,0,1,&pcap) || !gw_int(snap_s,64,1600,&snap) ||
+        !gw_int(rc_s,0,1,&rc) || !gw_int(port_s,1,65535,&port) ||
+        !gw_int(timeout_s,0,86400,&timeout) ||
+        !gw_int(bind_ap_s,0,1,&bind_ap) || !gw_int(bind_eth_s,0,1,&bind_eth))
+        return send_json(req,"{\"ok\":false,\"error\":\"Canal, seguridad, DHCP o pais invalido\"}");
+    if (dhcp && (!ip[0] || !mask[0] || !start[0] || !end[0]))
+        return send_json(req,"{\"ok\":false,\"error\":\"DHCP necesita IP estatica, mascara y rango\"}");
+    if (!ip[0] && mask[0]) return send_json(req,"{\"ok\":false,\"error\":\"IP estatica vacia con mascara configurada\"}");
+    if (!open && passwd[0] && (strlen(passwd)<8 || strlen(passwd)>63))
+        return send_json(req,"{\"ok\":false,\"error\":\"La clave WiFi debe tener 8 a 63 caracteres\"}");
+    if (!open && !passwd[0]) {
+        char *old=NULL;
+        if (get_config_param_str("ap_passwd",&old)==ESP_OK && old) {
+            snprintf(passwd,sizeof(passwd),"%s",old);
+        }
+        free(old);
+        if (strlen(passwd)<8 || strlen(passwd)>63)
+            return send_json(req,"{\"ok\":false,\"error\":\"Ingrese una clave WiFi de 8 a 63 caracteres\"}");
+    }
+    if (open) passwd[0]=0;
+    nvs_handle_t h;
+    esp_err_t e=nvs_open(PARAM_NAMESPACE,NVS_READWRITE,&h);
+    if (e!=ESP_OK) return send_json(req,"{\"ok\":false,\"error\":\"No se pudo abrir NVS\"}");
+#define SAVE_S(k,v) if (e==ESP_OK) e=nvs_set_str(h,k,v)
+#define SAVE_I(k,v) if (e==ESP_OK) e=nvs_set_i32(h,k,v)
+    SAVE_S("ap_ssid",ssid); SAVE_S("ap_passwd",passwd); SAVE_S("hostname",host);
+    SAVE_S("static_ip",ip); SAVE_S("subnet_mask",mask); SAVE_S("gateway_addr",gw);
+    SAVE_S("wifi_cc",cc); SAVE_I("ap_channel",channel); SAVE_I("ap_authmode",auth);
+    SAVE_I("ap_disabled",!en); SAVE_I("ap_hidden",hidden);
+    SAVE_I("dhcps_enabled",dhcp); SAVE_S("dhcps_start_ip",start); SAVE_S("dhcps_end_ip",end);
+    SAVE_I("dhcps_lease",lease); SAVE_S("dhcps_dns",dns);
+#undef SAVE_S
+#undef SAVE_I
+    if (e==ESP_OK) e=nvs_commit(h);
+    nvs_close(h);
+    if (e!=ESP_OK) { ESP_LOGE(TAG,"Config NVS failed: %s",esp_err_to_name(e));
+        return send_json(req,"{\"ok\":false,\"error\":\"No se pudo guardar la configuracion en NVS\"}"); }
+    if (!gw_nvs_string_equals("hostname",host) || !gw_nvs_string_equals("ap_ssid",ssid) ||
+        !gw_nvs_string_equals("static_ip",ip))
+        return send_json(req,"{\"ok\":false,\"error\":\"Error verificando la configuracion guardada\"}");
+    esp_err_t tags=gateway_enrollment_set_local_tags(name,location);
+    if (tags!=ESP_OK) return send_json(req,"{\"ok\":false,\"error\":\"No se pudo guardar la identidad\"}");
+    gateway_enrollment_status_t current; gateway_enrollment_get_status(&current);
+    if (strcmp(peer,current.expected_peer.ip)!=0) {
+        gateway_enrollment_config_t cfg={0};
+        memcpy(cfg.expected_peer.ip, peer, strlen(peer) + 1);
+        if (gateway_enrollment_set_expected_peer(&cfg)!=ESP_OK)
+            return send_json(req,"{\"ok\":false,\"error\":\"No se pudo guardar la IP KORVO\"}");
+    }
+    /* Apply operational tools after the persistent network and identity writes. */
+    pcap_set_mode(pcap ? PCAP_MODE_PROMISCUOUS : PCAP_MODE_OFF);
+    if (!pcap_set_snaplen((uint16_t)snap))
+        return send_json(req,"{\"ok\":false,\"error\":\"No se pudo ajustar PCAP\"}");
+    uint8_t bind=(bind_ap ? RC_BIND_AP : 0) | (bind_eth ? RC_BIND_ETH : 0);
+    if (!bind) bind=RC_BIND_AP;
+    esp_err_t tool_err=remote_console_set_port((uint16_t)port);
+    if (tool_err==ESP_OK) tool_err=remote_console_set_bind(bind);
+    if (tool_err==ESP_OK) tool_err=remote_console_set_timeout((uint32_t)timeout);
+    if (tool_err==ESP_OK) tool_err=rc ? remote_console_enable() : remote_console_disable();
+    if (tool_err!=ESP_OK) return send_json(req,"{\"ok\":false,\"error\":\"No se pudo configurar consola remota\"}");
+    extern esp_timer_handle_t restart_timer;
+    e=esp_timer_start_once(restart_timer,1800000);
+    if (e!=ESP_OK) return send_json(req,"{\"ok\":false,\"error\":\"Guardado, pero no se pudo programar reinicio\"}");
+    return send_json(req,"{\"ok\":true,\"reboot\":true}");
 }
 
 static esp_err_t enrollment_post(httpd_req_t *req)
@@ -516,6 +663,7 @@ static esp_err_t diag_page(httpd_req_t *req)
 static const httpd_uri_t URI_STATUS = {.uri="/api/gw/status",.method=HTTP_GET,.handler=status_api};
 static const httpd_uri_t URI_IDENTITY = {.uri="/api/device/identity",.method=HTTP_GET,.handler=identity_api};
 static const httpd_uri_t URI_VERIFY = {.uri="/api/gw/verify",.method=HTTP_POST,.handler=verify_enrolled_post};
+static const httpd_uri_t URI_CONFIG_ALL = {.uri="/api/gw/config-all",.method=HTTP_POST,.handler=gw_config_all_post};
 static const httpd_uri_t URI_ENROLL = {.uri="/api/gw/enrollment",.method=HTTP_POST,.handler=enrollment_post};
 static const httpd_uri_t URI_SIP_PAGE = {.uri="/sip",.method=HTTP_GET,.handler=sip_page};
 static const httpd_uri_t URI_SIP_GET = {.uri="/api/gw/sip",.method=HTTP_GET,.handler=sip_api_get};
@@ -527,7 +675,7 @@ esp_err_t gateway_web_register(httpd_handle_t server)
 {
     if (!server) return ESP_ERR_INVALID_ARG;
     esp_err_t e = ESP_OK;
-    const httpd_uri_t *uris[] = {&URI_STATUS,&URI_IDENTITY,&URI_VERIFY,&URI_ENROLL,&URI_SIP_PAGE,&URI_SIP_GET,&URI_SIP_POST,&URI_DIAG_PAGE,&URI_DIAG_POST};
+    const httpd_uri_t *uris[] = {&URI_STATUS,&URI_IDENTITY,&URI_VERIFY,&URI_ENROLL,&URI_CONFIG_ALL,&URI_SIP_PAGE,&URI_SIP_GET,&URI_SIP_POST,&URI_DIAG_PAGE,&URI_DIAG_POST};
     for (size_t i=0;i<sizeof(uris)/sizeof(uris[0]);++i) {
         esp_err_t r=httpd_register_uri_handler(server,uris[i]);
         if (r!=ESP_OK) { ESP_LOGE(TAG,"Failed URI %s: %s",uris[i]->uri,esp_err_to_name(r)); e=r; }

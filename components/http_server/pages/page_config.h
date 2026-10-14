@@ -1,3 +1,8 @@
+/* GATEWAY_V5_6_OTA_DANGER */
+/* GATEWAY_V5_5_LAYOUT_3_FILAS */
+/* GATEWAY_V5_4_PCAP_EN_MANAGEMENT */
+/* GATEWAY_COMPACT_3COL_V5_2 */
+/* GATEWAY_UNIFIED_V5_20261014 */
 /* Configuration page template - ESP32 Ethernet-WiFi Bridge */
 #include "wifi_config.h"
 
@@ -35,7 +40,7 @@ input[type='checkbox']:focus, input[type='radio']:focus { outline: none; border-
 .red-button { background: linear-gradient(135deg, #e65100 0%, #bf360c 100%); color: #fff; box-shadow: 0 4px 15px rgba(230, 81, 0, 0.4); }\
 small { display: block; color: #888; font-size: 0.85rem; margin-top: 0.5rem; line-height: 1.4; }\
 .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:1rem 0 1.25rem}.tabs a{padding:.65rem 1rem;border-radius:8px;border:1px solid rgba(255,179,0,.25);background:rgba(40,30,15,.6);color:#ddd;text-decoration:none;font-weight:600}.tabs a.active{background:#ffb300;color:#1a1510}.gw-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.gw-panel{background:rgba(40,30,15,.45);border:1px solid rgba(255,179,0,.15);border-radius:12px;padding:1rem}.gw-status{font-size:.9rem;color:#aaa;margin-top:.75rem}@media(max-width:800px){.gw-grid{grid-template-columns:1fr}}@media (max-width: 600px) { body { padding: 0.5rem; } #container { padding: 1rem; } h1 { font-size: 1.25rem; } h2 { font-size: 1rem; } td:first-child { font-size: 0.8rem; width: 40%; } input[type='text'], input[type='password'], input[type='number'], select { font-size: 0.9rem; padding: 0.65rem; } select { padding-right: 1.75rem; } .ok-button, .red-button { font-size: 0.9rem; padding: 0.65rem 1.25rem; } }\
-</style>\
+.gw-compact-layout{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:stretch}.gw-compact-layout>.gw-panel{padding:10px 12px;margin:0;min-width:0}.gw-compact-layout>.gw-panel h2,.gw-compact-layout>.gw-panel h3{margin:0 0 8px!important;padding:0 0 8px!important;font-size:1rem}.gw-compact-layout>.gw-card-rc{order:5}.gw-compact-layout>.gw-card-pcap{order:6}.gw-compact-layout>.gw-card-identity{order:4}.gw-compact-layout table{width:100%;margin:0}.gw-compact-layout td{padding:4px 3px;vertical-align:middle}.gw-compact-layout td:first-child{width:31%;min-width:0;text-align:left;white-space:normal}.gw-compact-layout td:last-child{text-align:left}.gw-compact-layout input[type=text],.gw-compact-layout input[type=password],.gw-compact-layout select{max-width:100%;box-sizing:border-box}.gw-compact-layout small{display:block;margin-top:5px;font-size:.73rem}.gw-pairing-layout{grid-template-columns:1fr;margin-top:10px}.gw-pairing-layout>.gw-panel{padding:10px 12px}@media(max-width:1100px){.gw-compact-layout{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:700px){.gw-compact-layout{grid-template-columns:1fr}}.gw-compact-layout .gw-pcap-inline-title{font-size:.95rem!important;margin:10px 0 7px!important;padding:8px 0 5px!important;border-top:1px solid rgba(255,179,0,.25)}.gw-compact-layout #gwPcapForm{margin:0}.gw-compact-layout #gwPcapForm td:first-child{width:31%}/* GATEWAY_V5_5_LAYOUT_3_FILAS */.gw-compact-layout>.gw-card-device{order:6;min-width:0}.gw-compact-layout>.gw-card-device #mainContent{display:block;max-width:100%}.gw-compact-layout>.gw-card-device .ok-button,.gw-compact-layout>.gw-card-device .red-button{max-width:100%;width:100%;box-sizing:border-box}.gw-compact-layout>.gw-card-device table{width:100%}.gw-compact-layout>.gw-card-device td:first-child{width:28%;min-width:0}.gw-compact-layout>.gw-card-device #otaFileName{overflow-wrap:anywhere}.gw-compact-layout>.gw-card-device h3{margin:7px 0 6px!important;padding:0!important}.gw-compact-layout>.gw-card-identity{order:4}.gw-compact-layout>.gw-card-rc{order:5}.gw-compact-layout .gw-card-identity>h3{border-bottom:1px solid rgba(255,179,0,.35);padding-bottom:8px!important;margin-bottom:8px!important}.gw-compact-layout .gw-pcap-inline-title{color:#ffb300!important;border-top:0!important;border-bottom:1px solid rgba(255,179,0,.35)!important;padding:0 0 7px!important;margin:12px 0 8px!important;font-weight:700!important}.gw-v55-third-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px;align-items:stretch}.gw-v55-third-row>.gw-panel{min-width:0;padding:10px 12px;margin:0}.gw-v55-third-row>.gw-card-pairing{grid-column:span 2}.gw-v55-third-row>.gw-card-danger{grid-column:span 1;background:transparent!important;border:1px solid rgba(255,179,0,.25)!important;border-radius:12px!important;padding:10px 12px!important;margin:0!important;box-sizing:border-box}.gw-v55-third-row>.gw-card-danger h2{color:#ffb300!important;font-size:1rem!important;margin:0 0 8px!important;padding:0 0 8px!important;border-bottom:1px solid rgba(255,179,0,.35)}.gw-v55-third-row>.gw-card-danger p{color:#aaa!important;font-size:.78rem!important;margin:6px 0 10px!important}.gw-v55-third-row>.gw-card-danger .red-button{max-width:100%;width:100%}.gw-v55-third-row>.gw-card-pairing>h3{margin:0 0 8px!important;padding:0 0 8px!important;border-bottom:1px solid rgba(255,179,0,.35)}@media(max-width:1100px){.gw-v55-third-row{grid-template-columns:repeat(2,minmax(0,1fr))}.gw-v55-third-row>.gw-card-pairing{grid-column:span 2}.gw-v55-third-row>.gw-card-danger{grid-column:span 2}}@media(max-width:700px){.gw-v55-third-row{grid-template-columns:1fr}.gw-v55-third-row>.gw-card-pairing,.gw-v55-third-row>.gw-card-danger{grid-column:span 1}}/* GATEWAY_V5_6_OTA_DANGER */.gw-compact-layout>.gw-card-danger{order:6;min-width:0;background:transparent!important;border:1px solid rgba(255,179,0,.25)!important;border-radius:12px!important;padding:10px 12px!important;margin:0!important;box-sizing:border-box}.gw-compact-layout>.gw-card-danger h2{color:#ffb300!important;font-size:1rem!important;margin:0 0 8px!important;padding:0 0 8px!important;border-bottom:1px solid rgba(255,179,0,.35)}.gw-compact-layout>.gw-card-danger p{color:#aaa!important;font-size:.78rem!important;margin:6px 0 10px!important}.gw-compact-layout>.gw-card-danger .red-button{width:100%;max-width:100%}.gw-v55-third-row>.gw-card-device{grid-column:span 1;min-width:0;padding:10px 12px!important;margin:0!important}.gw-v55-third-row>.gw-card-device>h3{color:#ffb300!important;font-size:1rem!important;margin:0 0 8px!important;padding:0 0 8px!important;border-bottom:1px solid rgba(255,179,0,.35)}.gw-v55-third-row>.gw-card-device #mainContent{display:block;max-width:100%}.gw-v55-third-row>.gw-card-device #mainContent>h3:first-child{display:none!important}.gw-v55-third-row>.gw-card-device #mainContent table{width:100%}.gw-v55-third-row>.gw-card-device #mainContent td{padding:4px 3px}.gw-v55-third-row>.gw-card-device .gw-ota-upload-row{display:flex;flex-wrap:nowrap;align-items:center;gap:6px;width:100%}.gw-v55-third-row>.gw-card-device .gw-ota-upload-row>td{width:auto!important;min-width:0;padding:3px 0;white-space:nowrap}.gw-v55-third-row>.gw-card-device .gw-ota-upload-row>td:nth-child(2){flex:1;min-width:0}.gw-v55-third-row>.gw-card-device .gw-ota-upload-row label{display:block!important;margin:0!important;padding:8px 5px!important;text-align:center;font-size:.76rem!important;white-space:nowrap;overflow:hidden}.gw-v55-third-row>.gw-card-device .gw-ota-upload-row #otaFileName{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gw-v55-third-row>.gw-card-device .gw-ota-upload-row .ok-button{width:auto!important;max-width:100%;padding:9px 9px!important;margin:0!important;white-space:nowrap;font-size:.78rem!important}.gw-v55-third-row>.gw-card-device .red-button{max-width:100%;width:100%}@media(max-width:1100px){.gw-v55-third-row>.gw-card-device{grid-column:span 2}.gw-compact-layout>.gw-card-danger{order:6}}@media(max-width:700px){.gw-v55-third-row>.gw-card-device{grid-column:span 1}.gw-v55-third-row>.gw-card-device .gw-ota-upload-row{flex-wrap:wrap}.gw-v55-third-row>.gw-card-device .gw-ota-upload-row>td:nth-child(2){flex:1}}</style>\
 <body>\
 <div id='container'>\
 <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;'>\
@@ -60,37 +65,35 @@ setTimeout(\"location.href = '/'\", 10000);\
 
 /* AP Settings section - uses: ap_ssid, ap_channel, auth_sel0/1/2, ap_en_checked, open_checked, hidden_checked */
 #define CONFIG_CHUNK_AP "\
-<h2>Access Point Settings</h2>\
-<form action='' method='POST'>\
+<div class='gw-grid gw-config-grid gw-compact-layout'>\
+<div class='gw-panel'><h2>Access Point Settings</h2>\
+<form id='gwNetworkAp' onsubmit='return false'>\
 <table>\
 <tr><td>SSID</td><td><input type='text' name='ap_ssid' value='%s' placeholder='Network name'/></td></tr>\
 <tr><td>Password</td><td><input type='text' id='ap_pw' name='ap_password' placeholder='unchanged' oninput=\"document.getElementById('ap_op').checked=false;\"/></td></tr>\
 <tr><td>Channel</td><td><input type='number' name='ap_channel' min='0' max='%d' value='%d' style='width:4em'/> <span style='color:#888;font-size:0.85rem;'>(0 = auto)</span></td></tr>\
-<tr><td>Country</td><td><input type='text' name='wifi_cc' maxlength='2' value='%s' style='width:4em'/> <span style='color:#888;font-size:0.85rem;'>ISO 3166 (e.g. US, DE, 01=world)</span></td></tr>\
+<tr><td>Country</td><td><select name='wifi_cc' id='gwCountry' data-current='%s' style='width:100%%'><option value='CL'>Chile</option><option value='US'>Estados Unidos</option><option value='DE'>Alemania</option><option value='ES'>España</option><option value='FR'>Francia</option><option value='GB'>Reino Unido</option><option value='01'>Internacional (01)</option></select></td></tr>\
 <tr><td>Security</td><td><select name='ap_auth'><option value='0' %s>WPA2/WPA3</option><option value='1' %s>WPA2 only</option><option value='2' %s>WPA3 only</option></select></td></tr>\
 <tr><td>Enabled</td><td><input type='checkbox' name='ap_enable' value='1' %s></td></tr>\
-<tr><td>Options</td><td><input type='checkbox' id='ap_op' name='ap_open' value='1' %s onchange=\"if(this.checked)document.getElementById('ap_pw').value='';\"> <span style='color:#888;font-size:0.85rem;'>Open (no password)</span> &nbsp; <input type='checkbox' name='ap_hidden' value='1' %s> <span style='color:#888;font-size:0.85rem;'>Hidden SSID</span></td></tr>\
-<tr><td></td><td><input type='submit' value='Save &amp; Reboot' class='ok-button'/></td></tr>\
+<tr><td>Options</td><td><input type='checkbox' id='ap_op' name='ap_open' value='1' %s onchange=\"if(this.checked)document.getElementById('ap_pw').value='';\"> <span style='color:#888;font-size:0.85rem;'>Open (no pwd)</span> &nbsp; <input type='checkbox' name='ap_hidden' value='1' %s> <span style='color:#888;font-size:0.85rem;'>Hidden SSID</span></td></tr>\
 </table>\
-</form>"
+</form></div>"
 
 /* Management IP section - uses: static_ip, subnet_mask, gateway */
 #define CONFIG_CHUNK_MGMT_IP "\
-<h2>Management IP</h2>\
-<form action='' method='POST'>\
+<div class='gw-panel'><h2>Management IP</h2>\
+<form id='gwNetworkIp' onsubmit='return false'>\
 <table>\
-<tr><td>Static IP</td><td><input type='text' name='staticip' value='%s' placeholder='192.168.4.1'/></td></tr>\
+<tr><td>IP/Web Server</td><td><input type='text' name='staticip' value='%s' placeholder='192.168.4.1'/></td></tr>\
 <tr><td>Subnet Mask</td><td><input type='text' name='subnetmask' value='%s' placeholder='255.255.255.0'/></td></tr>\
 <tr><td>Gateway</td><td><input type='text' name='gateway' value='%s' placeholder='(optional)'/></td></tr>\
-<tr><td></td><td><input type='submit' value='Save &amp; Reboot' class='ok-button'/></td></tr>\
 </table>\
-<small>Management IP for accessing this web interface on the bridged network. Leave empty for DHCP.</small>\
-</form>"
+</form></div>"
 
 /* DHCP Server section - uses: dhcps_en_chk, dhcps_dis_chk, dhcps_start, dhcps_end, dhcps_lease, dhcps_dns */
 #define CONFIG_CHUNK_DHCPS "\
-<h2>DHCP Server</h2>\
-<form action='' method='POST'>\
+<div class='gw-panel'><h2>DHCP Server</h2>\
+<form id='gwNetworkDhcp' onsubmit='return false'>\
 <input type='hidden' name='dhcps_save' value='1'/>\
 <table>\
 <tr><td>Service</td><td>\
@@ -101,15 +104,14 @@ setTimeout(\"location.href = '/'\", 10000);\
 <tr><td>Pool End</td><td><input type='text' name='dhcps_end' value='%s' placeholder='192.168.4.110'/></td></tr>\
 <tr><td>Lease (min)</td><td><input type='number' name='dhcps_lease' value='%lu' min='1' max='14400' style='width:6em'/></td></tr>\
 <tr><td>DNS</td><td><input type='text' name='dhcps_dns' value='%s' placeholder='(use bridge IP)'/></td></tr>\
-<tr><td></td><td><input type='submit' value='Save &amp; Reboot' class='ok-button'/></td></tr>\
 </table>\
 <small>Requires static management IP. Disable your upstream DHCP server to avoid conflicts.</small>\
-</form>"
+</form></div>"
 
 /* PCAP Capture section - uses: pcap_off_chk, pcap_on_chk, pcap_snaplen, bridge_ip */
 #define CONFIG_CHUNK_PCAP "\
-<h2>Packet Capture (PCAP)</h2>\
-<form action='' method='GET'>\
+<div class='gw-panel gw-card-pcap'><h2>Packet Capture (PCAP)</h2>\
+<form id='gwPcapForm' onsubmit='return false'>\
 <input type='hidden' name='pcap_save' value='1'/>\
 <table>\
 <tr><td>Capture</td><td>\
@@ -117,15 +119,14 @@ setTimeout(\"location.href = '/'\", 10000);\
 <label><input type='radio' name='pcap_enabled' value='0' %s> Disabled</label>\
 </td></tr>\
 <tr><td>Snaplen</td><td><input type='number' name='pcap_snaplen' value='%d' min='64' max='1600' style='width: 100px;'/> bytes</td></tr>\
-<tr><td></td><td><input type='submit' value='Save' class='ok-button'/></td></tr>\
 </table>\
 <small style='font-family:monospace;'>use with: nc %s 19000 | wireshark -k -i -</small>\
-</form>"
+</form></div>"
 
 /* Remote Console section - uses: rc_en_chk, rc_dis_chk, rc_color, rc_status, rc_kick, rc_port, rc_ap_chk, rc_eth_chk, rc_timeout */
 #define CONFIG_CHUNK_RC "\
-<h2>Remote Console</h2>\
-<form action='' method='GET'>\
+<div class='gw-panel gw-card-rc'><h2>Remote Console</h2>\
+<form id='gwRcForm' onsubmit='return false'>\
 <input type='hidden' name='rc_save' value='1'/>\
 <table>\
 <tr><td>Service</td><td>\
@@ -139,31 +140,33 @@ setTimeout(\"location.href = '/'\", 10000);\
 <label><input type='checkbox' name='rc_bind_eth' value='1' %s> ETH</label>\
 </td></tr>\
 <tr><td>Idle Timeout</td><td><input type='number' name='rc_timeout' value='%lu' min='0' max='86400' style='width: 100px;'/> sec (0 = no)</td></tr>\
-<tr><td></td><td><input type='submit' value='Save' class='ok-button'/></td></tr>\
 </table>\
-</form>"
+</form></div>"
 
 /* Device management and footer */
 #define CONFIG_CHUNK_TAIL "\
-<h2>Gateway V2.5 / Simple IP Pairing</h2>\
-<div class='gw-grid'>\
-<div class='gw-panel'><h3 style='color:#ffb300;margin-bottom:.75rem'>Local Identity</h3>\
+<div class='gw-panel gw-card-identity'><h3 style='color:#ffb300;margin-bottom:.35rem'>Local Identity</h3>\
 <table><tr><td>Gateway Name</td><td><input id='gwLocalName' type='text'></td></tr><tr><td>Location</td><td><input id='gwLocation' type='text'></td></tr><tr><td>Hostname</td><td><input id='gwLocalHost' type='text' maxlength='32'></td></tr><tr><td>IP</td><td><span id='gwLocalIp'></span></td></tr><tr><td>MAC</td><td><span id='gwLocalMac'></span></td></tr></table>\
-<div style='margin-top:.75rem'><button type='button' class='ok-button' style='width:auto' onclick='gwSaveLocal()'>Save Local Identity</button></div></div>\
-<div class='gw-panel'><h3 style='color:#ffb300;margin-bottom:.75rem'>KORVO Pairing</h3>\
+</div>\
+</div>\
+<div class='gw-grid gw-pairing-layout'><div class='gw-panel'><h3 style='color:#ffb300;margin-bottom:.35rem'>KORVO Pairing</h3>\
 <table><tr><td>KORVO IP</td><td><input id='gwPeerIp' type='text' value='192.168.10.50'></td></tr><tr><td>Detected Name</td><td><span id='gwPeerName'>-</span></td></tr><tr><td>Hostname / Sala</td><td><span id='gwPeerHost'>-</span></td></tr><tr><td>Location</td><td><span id='gwPeerLocation'>-</span></td></tr><tr><td>Live source IP</td><td><span id='gwObservedIp'>-</span></td></tr></table>\
-<div style='display:flex;gap:.5rem;flex-wrap:wrap;margin:.75rem 0'><button type='button' class='ok-button' style='width:auto' onclick='gwSaveIp()'>SAVE KORVO IP</button><button type='button' class='ok-button' style='width:auto' onclick='gwVerify()'>VERIFY</button><button type='button' class='red-button' style='width:auto' onclick='gwClearEnrollment()'>REMOVE PAIRING</button></div>\
+<div style='display:flex;gap:.5rem;flex-wrap:wrap;margin:.75rem 0'><button type='button' class='ok-button' style='width:auto' onclick='gwVerify()'>VERIFY</button><button type='button' class='red-button' style='width:auto' onclick='gwClearEnrollment()'>REMOVE PAIRING</button></div>\
 <div class='gw-status' id='gwEnrollState'>Waiting pairing status...</div>\
 <small>V2.5 uses only reciprocal IP configuration for control. MAC, hostname and location are diagnostic only. CONTROL becomes OK when a WebSocket arrives from the configured KORVO IP.</small></div>\
 </div>\
+<div style='max-width:700px;margin:1.25rem auto'><button id='gwSaveAllBtn' type='button' class='ok-button' onclick='gwSaveAll()'>Guardar y reiniciar</button><div id='gwSaveAllMsg' class='gw-status' role='status'></div></div>\
 <script>\
+document.addEventListener('DOMContentLoaded',function(){var e=document.getElementById('gwCountry');if(!e)return;var v=(e.getAttribute('data-current')||'').toUpperCase();var found=false;for(var i=0;i<e.options.length;i++){if(e.options[i].value===v){found=true;break;}}if(!found&&v){var o=document.createElement('option');o.value=v;o.textContent='Actual ('+v+')';e.appendChild(o);}e.value=v||'CL';});\
+document.addEventListener('DOMContentLoaded',function(){var ip=document.getElementById('gwNetworkIp'),pc=document.getElementById('gwPcapForm');if(!ip||!pc)return;var host=ip.closest('.gw-panel'),old=pc.closest('.gw-panel');if(!host||!old||host===old)return;var h=document.createElement('h3');h.textContent='Packet Capture (PCAP)';h.className='gw-pcap-inline-title';host.appendChild(h);host.appendChild(pc);old.remove();});\
+document.addEventListener('DOMContentLoaded',function(){var grid=document.querySelector('.gw-compact-layout');var pairGrid=document.querySelector('.gw-pairing-layout');var main=document.getElementById('mainContent');if(!grid||!pairGrid||!main)return;var pair=pairGrid.querySelector('.gw-panel');if(!pair)return;var device=document.createElement('div');device.className='gw-panel gw-card-device';var dt=document.createElement('h3');dt.textContent='Device Management';device.appendChild(dt);device.appendChild(main);grid.appendChild(device);var hs=document.querySelectorAll('h2');for(var i=0;i<hs.length;i++){if(hs[i].textContent.trim()==='Device Management'){if(hs[i]!==dt)hs[i].remove();}}var third=document.createElement('div');third.className='gw-v55-third-row';pair.classList.add('gw-card-pairing');third.appendChild(pair);var danger=null,heads=document.querySelectorAll('h2');for(var j=0;j<heads.length;j++){if(heads[j].textContent.trim()==='Danger Zone'){var d=heads[j].parentElement;if(d&&d.querySelector('input[name=disable_interface]')){danger=d;break;}}}if(danger){danger.classList.add('gw-panel','gw-card-danger');third.appendChild(danger);}pairGrid.parentNode.insertBefore(third,pairGrid);pairGrid.remove();});\
+document.addEventListener('DOMContentLoaded',function(){var grid=document.querySelector('.gw-compact-layout');var third=document.querySelector('.gw-v55-third-row');if(!grid||!third)return;var danger=third.querySelector('.gw-card-danger');var device=grid.querySelector('.gw-card-device');if(!danger||!device)return;grid.appendChild(danger);third.appendChild(device);var title=device.querySelector(':scope > h3');if(title)title.textContent='Firmware Update (OTA)';var main=device.querySelector('#mainContent');if(!main)return;var otaHeading=main.querySelector('h3');if(otaHeading&&otaHeading.textContent.indexOf('Firmware Update')!==-1)otaHeading.style.display='none';var file=document.getElementById('otaFile');var btn=null,buttons=main.querySelectorAll('button');for(var i=0;i<buttons.length;i++){if(buttons[i].textContent.indexOf('Upload Firmware')!==-1){btn=buttons[i];break;}}if(!file||!btn)return;btn.textContent='Upload bin';var tr=file.closest('tr');if(!tr)return;var label=file.closest('label');if(!label)return;var cells=tr.querySelectorAll('td');if(cells.length<2)return;tr.classList.add('gw-ota-upload-row');var uploadCell=cells[1];var children=Array.from(uploadCell.childNodes);for(var k=0;k<children.length;k++){if(children[k].nodeType===1&&children[k].tagName==='BR')children[k].remove();}var actionCell=document.createElement('td');actionCell.appendChild(btn);tr.appendChild(actionCell);});\
 var gwEditableIds=['gwLocalName','gwLocation','gwLocalHost','gwPeerIp'];\
 function gwSetInput(id,v){var el=document.getElementById(id);if(!el)return;if(document.activeElement===el||el.dataset.dirty==='1')return;el.value=v||'';}\
 function gwClearDirty(ids){ids.forEach(function(id){var el=document.getElementById(id);if(el)delete el.dataset.dirty;});}\
 function gwInitEditable(){gwEditableIds.forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',function(){this.dataset.dirty='1';});});}\
 async function gwLoadEnrollment(){try{var r=await fetch('/api/gw/status',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);var j=await r.json(),d=j.data||{},e=d.enrollment||{},l=e.local||{},p=e.expected_peer||{},o=e.observed_peer||{};gwSetInput('gwLocalName',l.name||'');gwSetInput('gwLocation',l.location||'');gwSetInput('gwLocalHost',l.hostname||'');document.getElementById('gwLocalIp').textContent=l.ip||'-';document.getElementById('gwLocalMac').textContent=l.mac||'-';if(p.ip)gwSetInput('gwPeerIp',p.ip);document.getElementById('gwPeerName').textContent=o.name||p.name||'-';document.getElementById('gwPeerHost').textContent=o.hostname||p.hostname||'-';document.getElementById('gwPeerLocation').textContent=o.location||p.location||'-';document.getElementById('gwObservedIp').textContent=o.ip||'-';var paired=e.paired?'PAIRED':'NOT PAIRED';var pc=e.control_ok?'CONTROL OK':'CONTROL BLOCKED';document.getElementById('gwEnrollState').innerHTML='Configured KORVO: <b>'+(p.ip||'-')+'</b> · State: <b style=color:'+(e.gateway_ok?'#4caf50':'#ffb300')+'>'+paired+'</b><br>Live IP match: <b style=color:'+(e.session_ip_ok?'#4caf50':'#ff5252')+'>'+(e.session_ip_ok?'YES':'NO')+'</b> · <b style=color:'+(e.control_ok?'#4caf50':'#ff5252')+'>'+pc+'</b>';}catch(x){document.getElementById('gwEnrollState').textContent='Pairing status unavailable: '+x.message;}}\
-async function gwSaveLocal(){var p=new URLSearchParams({action:'local',local_name:document.getElementById('gwLocalName').value,location:document.getElementById('gwLocation').value,hostname:document.getElementById('gwLocalHost').value});var r=await fetch('/api/gw/enrollment',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p});var j=await r.json();if(!j.ok){alert('Error: '+(j.error||'unknown'));return;}gwClearDirty(['gwLocalName','gwLocation','gwLocalHost']);if(j.reboot){alert('Guardado. El Gateway se reiniciara para aplicar el hostname.');setTimeout(function(){location.reload();},10000);}else{gwLoadEnrollment();}}\
-async function gwSaveIp(){var ip=document.getElementById('gwPeerIp').value.trim();var p=new URLSearchParams({action:'save_ip',peer_ip:ip});var r=await fetch('/api/gw/enrollment',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p});var j=await r.json();if(!j.ok){alert('Error: '+(j.error||'unknown'));return;}gwClearDirty(['gwPeerIp']);gwLoadEnrollment();}\
+async function gwSaveAll(){try{var b=document.getElementById('gwSaveAllBtn'),m=document.getElementById('gwSaveAllMsg');b.disabled=true;m.textContent='Validando y guardando configuracion...';var p=new URLSearchParams();['gwNetworkAp','gwNetworkIp','gwNetworkDhcp','gwPcapForm','gwRcForm'].forEach(function(id){new FormData(document.getElementById(id)).forEach(function(v,k){p.set(k,v);});});['ap_enable','ap_open','ap_hidden','rc_bind_ap','rc_bind_eth'].forEach(function(k){if(!p.has(k))p.set(k,'0');});p.set('local_name',document.getElementById('gwLocalName').value);p.set('location',document.getElementById('gwLocation').value);p.set('hostname',document.getElementById('gwLocalHost').value);p.set('peer_ip',document.getElementById('gwPeerIp').value);var r=await fetch('/api/gw/config-all',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p});var j=await r.json();if(!r.ok||!j.ok)throw new Error(j.error||('HTTP '+r.status));m.textContent='Configuracion guardada en NVS. Reiniciando Gateway...';setTimeout(function(){location.reload();},12000);}catch(e){document.getElementById('gwSaveAllMsg').textContent='No se guardo: '+e.message;document.getElementById('gwSaveAllBtn').disabled=false;}}\
 async function gwVerify(){var box=document.getElementById('gwEnrollState');box.textContent='Verifying configured KORVO IP...';try{var r=await fetch('/api/gw/verify',{method:'POST'});var j=await r.json();if(!j.ok&&j.error){box.innerHTML='<b style=color:#ff5252>'+j.error+'</b>';return;}var q=j.probe||{},id=q.identity||{};box.innerHTML='KORVO <b>'+(j.target_ip||'-')+'</b> · '+((q.state||'').toUpperCase())+' · '+(id.name||id.hostname||'')+'<br>CONTROL becomes OK automatically when that same IP opens the KORVO WebSocket.';gwLoadEnrollment();}catch(x){box.textContent='Verify error: '+x.message;}}\
 async function gwClearEnrollment(){if(!confirm('Remove configured KORVO IP and block remote GPIO/control?'))return;var p=new URLSearchParams({action:'clear'});var r=await fetch('/api/gw/enrollment',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p});var j=await r.json();if(j.ok){gwClearDirty(['gwPeerIp']);document.getElementById('gwPeerIp').value='192.168.10.50';gwLoadEnrollment();}}gwInitEditable();gwLoadEnrollment();\
 </script>\
