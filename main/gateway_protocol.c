@@ -3,11 +3,38 @@
 #include "gateway_services.h"
 #include "gateway_enrollment.h"
 #include "gateway_wifi.h"
+#include "korvo_protocol.h"
 
 #include <stdio.h>
 #include <string.h>
 #include "esp_system.h"
 #include "esp_timer.h"
+
+/* GW_V6_1_DICTIONARY_IDENTITY */
+/* FNV-1a diagnostic fingerprint of [id, direction, name, NUL].
+ * NOT cryptographic. KORVO comparison is a future stage.
+ */
+static uint32_t gateway_dictionary_fingerprint(void)
+{
+    uint32_t hash = UINT32_C(2166136261);
+    for (unsigned id = 0; id <= 255; ++id) {
+        if (!korvo_protocol_is_valid((uint8_t)id)) continue;
+        const char *name = korvo_protocol_name((korvo_message_id_t)id);
+        hash = (hash ^ (uint8_t)id) * UINT32_C(16777619);
+        hash = (hash ^ (uint8_t)korvo_protocol_direction((korvo_message_id_t)id)) * UINT32_C(16777619);
+        for (const unsigned char *p = (const unsigned char *)name; *p; ++p)
+            hash = (hash ^ *p) * UINT32_C(16777619);
+        hash = (hash ^ 0u) * UINT32_C(16777619);
+    }
+    return hash;
+}
+static unsigned gateway_dictionary_count(void)
+{
+    unsigned n = 0;
+    for (unsigned id = 0; id <= 255; ++id)
+        if (korvo_protocol_is_valid((uint8_t)id)) ++n;
+    return n;
+}
 
 esp_err_t gateway_protocol_init(void)
 {
@@ -81,10 +108,12 @@ size_t gateway_protocol_hello_json(char *out, size_t out_len)
         "{\"v\":1,\"type\":\"event\",\"name\":\"sys.hello\",\"data\":{"
         "\"role\":\"gateway\",\"layer_version\":\"%s\","
         "\"device_name\":\"%s\",\"hostname\":\"%s\",\"location\":\"%s\",\"ip\":\"%s\",\"mac\":\"%s\","
-        "\"pair_mode\":\"ip\",\"korvo_ip\":\"%s\",\"enrollment\":\"%s\",\"control_ok\":%s}}",
+        "\"pair_mode\":\"ip\",\"korvo_ip\":\"%s\",\"enrollment\":\"%s\",\"control_ok\":%s,\"dictionary_version\":%u,\"dictionary_count\":%u,\"dictionary_fingerprint\":\"%08lX\"}}",
         GATEWAY_V2_LAYER_VERSION,
         e.local.device_name, e.local.hostname, e.local.location, e.local.ip, e.local.mac,
-        e.expected_peer.ip, gateway_enrollment_state_name(e.state), e.control_allowed ? "true" : "false");
+        e.expected_peer.ip, gateway_enrollment_state_name(e.state), e.control_allowed ? "true" : "false",
+        (unsigned)KORVO_PROTOCOL_DICTIONARY_VERSION, gateway_dictionary_count(),
+        (unsigned long)gateway_dictionary_fingerprint());
     if (n < 0) return 0;
     return (size_t)n < out_len ? (size_t)n : out_len - 1;
 }
@@ -111,13 +140,15 @@ size_t gateway_protocol_status_json(char *out, size_t out_len)
 
     int n = snprintf(out, out_len,
         "{\"v\":1,\"type\":\"status\",\"name\":\"sys.status\",\"data\":{"
-        "\"layer_version\":\"%s\",\"uptime_s\":%llu,\"free_heap\":%lu,"
+        "\"layer_version\":\"%s\",\"dictionary_version\":%u,\"dictionary_count\":%u,\"dictionary_fingerprint\":\"%08lX\",\"uptime_s\":%llu,\"free_heap\":%lu,"
         "\"io\":{\"rex\":%s,\"door\":\"%s\",\"relay\":%s,\"beacon\":%s},"
         "\"wiegand\":{\"last_bits\":%lu,\"last_raw\":\"%llX\"},"
         "\"sip\":{\"engine\":\"stub\",\"registered\":%s,\"state\":\"%s\",\"direction\":\"%s\",\"remote_extension\":\"%s\",\"remote_name\":\"%s\",\"extension\":\"%s\",\"extension_name\":\"%s\",\"central_extension\":\"%s\",\"central_name\":\"%s\",\"call_mode\":\"%s\"},"
         "\"bluetooth\":{\"engine\":\"stub\",\"connected\":%s,\"audio_ready\":%s,\"device\":\"%s\",\"profile\":\"%s\"},"
         "\"wifi\":%s,\"enrollment\":%s}}",
         GATEWAY_V2_LAYER_VERSION,
+        (unsigned)KORVO_PROTOCOL_DICTIONARY_VERSION, gateway_dictionary_count(),
+        (unsigned long)gateway_dictionary_fingerprint(),
         (unsigned long long)uptime_s, (unsigned long)heap,
         io.rex_active ? "true" : "false", io.door_open ? "open" : "closed",
         io.relay_on ? "true" : "false", io.beacon_on ? "true" : "false",
