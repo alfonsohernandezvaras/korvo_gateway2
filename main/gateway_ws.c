@@ -163,7 +163,11 @@ static esp_err_t handle_command(httpd_req_t *req, cJSON *root)
         return send_text_req(req, status);
     }
     if (!strcmp(name, "sys.ping")) {
-        return send_text_req(req, "{\"v\":1,\"type\":\"event\",\"name\":\"sys.pong\",\"data\":{}}");
+        esp_err_t pong = send_text_req(req, "{\"v\":1,\"type\":\"event\",\"name\":\"sys.pong\",\"data\":{}}");
+        if (pong != ESP_OK) return pong;
+        char status[4096];
+        gateway_protocol_status_json(status, sizeof(status));
+        return send_text_req(req, status);
     }
 
     cJSON *data = cJSON_GetObjectItemCaseSensitive(root, "data");

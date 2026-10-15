@@ -1,5 +1,6 @@
 #include "gateway_web.h"
 #include "gateway_protocol.h"
+#include "gateway_map.h"
 #include "gateway_enrollment.h"
 #include "gateway_services.h"
 #include "gateway_diag.h"
@@ -613,7 +614,7 @@ static const char PAGE_CSS[] =
 "input,select{width:100%;background:#181510;color:#eee;border:1px solid #544526;border-radius:7px;padding:10px;font-size:14px}button{border:0;border-radius:8px;padding:10px 14px;background:#ffb300;color:#1a1510;font-weight:700;cursor:pointer}.danger{background:#c84d3a;color:white}.ghost{background:#393126;color:#ddd}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.msg{margin-top:10px;color:#ffcf66;font-size:13px}.wide{grid-column:1/-1}.bar{height:10px;background:#332b20;border-radius:6px;overflow:hidden}.fill{height:100%;background:#ffb300;width:0}.mono{font-family:ui-monospace,Consolas,monospace}@media(max-width:800px){.grid{grid-template-columns:1fr}.row{grid-template-columns:1fr}.wide{grid-column:auto}}</style>";
 
 static const char NAV[] =
-"<div class='tabs'><a href='/'>STATUS</a><a href='/config'>GATEWAY</a><a href='/sip'>SIP / VOIP</a><a href='/diagnostic'>DIAGNOSTICO</a></div>";
+"<div class='tabs'><a href='/'>STATUS</a><a href='/config'>GATEWAY</a><a href='/sip'>SIP / VOIP</a><a href='/diagnostic'>DIAGNOSTICO</a><a href='/gpio-map'>GPIO / PALABRAS</a></div>";
 
 static esp_err_t send_page_start(httpd_req_t *req, const char *title, const char *active)
 {
@@ -660,6 +661,87 @@ static esp_err_t diag_page(httpd_req_t *req)
     return httpd_resp_sendstr_chunk(req,NULL);
 }
 
+/* GW_V6_2_MAP_EDITOR: single fixed WT32-ETH01 template, no physical pin writes. */
+static esp_err_t gw_map_api_get(httpd_req_t *req)
+{
+    if (require_auth(req)!=ESP_OK) return ESP_OK;
+    gateway_map_config_t c; gateway_map_get(&c);
+    bool ok=false; unsigned pct=0; gateway_map_validation(&c,&ok,&pct);
+    char b[1600]; int n=snprintf(b,sizeof(b),
+      "{\"ok\":%s,\"saved\":%s,\"percent\":%u,\"revision\":%lu,\"rows\":[",
+      ok?"true":"false",c.saved?"true":"false",pct,(unsigned long)c.revision);
+    for(unsigned i=0;i<GW_MAP_ROWS && n>0 && n<(int)sizeof(b)-120;++i) {
+        n+=snprintf(b+n,sizeof(b)-(size_t)n,
+          "%s{\"id\":%u,\"gpio\":%d,\"word\":%u,\"enabled\":%s,\"required\":%s,\"label\":\"%s\"}",
+          i?",":"",i,gateway_map_gpio(i),c.word[i],c.enabled[i]?"true":"false",
+          gateway_map_required(i)?"true":"false",gateway_map_label(i));
+    }
+    if(n<0 || n>(int)sizeof(b)-3) return send_json(req,"{\"ok\":false,\"error\":\"buffer\"}");
+    snprintf(b+n,sizeof(b)-(size_t)n,"]}");
+    return send_json(req,b);
+}
+static esp_err_t gw_map_api_post(httpd_req_t *req)
+{
+    if (require_auth(req)!=ESP_OK) return ESP_OK;
+    char body[1200];
+    if (!recv_form(req,body,sizeof(body))) return send_json(req,"{\"ok\":false,\"error\":\"body\"}");
+    gateway_map_config_t c; gateway_map_get(&c);
+    for(unsigned i=0;i<GW_MAP_ROWS;++i) {
+        char key[16],value[16];
+        snprintf(key,sizeof(key),"en%u",i);
+        if(!form_value(body,key,value,sizeof(value))) return send_json(req,"{\"ok\":false,\"error\":\"missing_enabled\"}");
+        if(strcmp(value,"0") && strcmp(value,"1")) return send_json(req,"{\"ok\":false,\"error\":\"invalid_enabled\"}");
+        c.enabled[i]=value[0]=='1';
+        snprintf(key,sizeof(key),"word%u",i);
+        if(!form_value(body,key,value,sizeof(value))) return send_json(req,"{\"ok\":false,\"error\":\"missing_word\"}");
+        char *end=NULL; unsigned long v=strtoul(value,&end,10);
+        if(end==value || *end || v>255) return send_json(req,"{\"ok\":false,\"error\":\"invalid_word\"}");
+        c.word[i]=(uint8_t)v;
+    }
+    esp_err_t e=gateway_map_save(&c);
+    if(e!=ESP_OK) return send_json(req,"{\"ok\":false,\"error\":\"invalid_map_or_nvs\"}");
+    return gw_map_api_get(req);
+}
+static esp_err_t gw_map_page(httpd_req_t *req)
+{
+    if (!http_server_request_authenticated(req)) {
+        httpd_resp_set_status(req,"303 See Other");
+        httpd_resp_set_hdr(req,"Location","/?auth_required=1");
+        return httpd_resp_send(req,NULL,0);
+    }
+    send_page_start(req,"GPIO / Palabras","map");
+    httpd_resp_sendstr_chunk(req,
+      "<div class='card'><h2>Plantilla unica WT32-ETH01 / LAN8720</h2>"
+      "<p class='sub'>GPIO fisicos fijos del firmware. Este editor configura la habilitacion logica de cada funcion y su palabra del diccionario V1. "
+      "No cambia pines, no acciona salidas, no modifica Ethernet, Wiegand ni el router.</p>"
+      "<div id='summary' class='msg'>Leyendo NVS...</div>"
+      "<div style='overflow:auto'><table style='width:100%;border-collapse:collapse' id='rows'>"
+      "<thead><tr><th>Senal</th><th>GPIO</th><th>Palabra</th><th>Uso</th><th>Habilitada</th></tr></thead><tbody></tbody></table></div>"
+      "<div class='actions'><button id='saveMap'>GUARDAR PLANTILLA NVS</button><button class='ghost' id='reloadMap'>RECARGAR</button></div>"
+      "<div id='msgMap' class='msg'></div>"
+      "<p class='sub'>Las palabras reservadas para funciones futuras permanecen en el diccionario maestro; no se asignan a GPIO inexistentes. "
+      "El mapa solo es OK si todas las senales obligatorias estan habilitadas y la plantilla fue guardada.</p></div>"
+      "<script>const $=x=>document.getElementById(x);let rows=[];"
+      "async function loadMap(){try{let r=await fetch('/api/gw/map',{cache:'no-store'});let d=await r.json();"
+      "if(!d.rows)throw Error(d.error||'No data');rows=d.rows;"
+      "$('summary').textContent='NVS: '+(d.saved?'GUARDADA':'SIN GUARDAR')+' | Mapa: '+d.percent+'% | Estado: '+(d.ok?'OK':'INCOMPLETO')+' | Revision: '+d.revision;"
+      "let tb=$('rows').querySelector('tbody');tb.textContent='';"
+      "rows.forEach(x=>{let tr=document.createElement('tr');tr.style.borderBottom='1px solid #47381d';"
+      "[x.label,String(x.gpio),'0x'+x.word.toString(16).toUpperCase().padStart(2,'0'),x.required?'OBLIGATORIA':'OPCIONAL'].forEach(t=>{let td=document.createElement('td');td.style.padding='10px';td.textContent=t;tr.appendChild(td)});"
+      "let td=document.createElement('td');td.style.textAlign='center';let cb=document.createElement('input');cb.type='checkbox';cb.checked=x.enabled;cb.dataset.id=x.id;cb.style.width='auto';td.appendChild(cb);tr.appendChild(td);tb.appendChild(tr)});"
+      "}catch(e){$('msgMap').textContent='Error: '+e.message}}"
+      "$('reloadMap').onclick=loadMap;$('saveMap').onclick=async()=>{let p=new URLSearchParams();"
+      "rows.forEach(x=>{let cb=document.querySelector('input[data-id=\\\"'+x.id+'\\\"]');p.set('en'+x.id,cb&&cb.checked?'1':'0');p.set('word'+x.id,String(x.word))});"
+      "try{let r=await fetch('/api/gw/map',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p});let d=await r.json();"
+      "$('msgMap').textContent=d.rows?'Plantilla guardada en NVS':'Error: '+(d.error||'unknown');if(d.rows)loadMap()}catch(e){$('msgMap').textContent=e.message}};loadMap();</script>");
+    httpd_resp_sendstr_chunk(req,"</div></body></html>");
+    return httpd_resp_sendstr_chunk(req,NULL);
+}
+
+static const httpd_uri_t URI_MAP_PAGE = {.uri="/gpio-map",.method=HTTP_GET,.handler=gw_map_page};
+static const httpd_uri_t URI_MAP_GET = {.uri="/api/gw/map",.method=HTTP_GET,.handler=gw_map_api_get};
+static const httpd_uri_t URI_MAP_POST = {.uri="/api/gw/map",.method=HTTP_POST,.handler=gw_map_api_post};
+
 static const httpd_uri_t URI_STATUS = {.uri="/api/gw/status",.method=HTTP_GET,.handler=status_api};
 static const httpd_uri_t URI_IDENTITY = {.uri="/api/device/identity",.method=HTTP_GET,.handler=identity_api};
 static const httpd_uri_t URI_VERIFY = {.uri="/api/gw/verify",.method=HTTP_POST,.handler=verify_enrolled_post};
@@ -675,7 +757,7 @@ esp_err_t gateway_web_register(httpd_handle_t server)
 {
     if (!server) return ESP_ERR_INVALID_ARG;
     esp_err_t e = ESP_OK;
-    const httpd_uri_t *uris[] = {&URI_STATUS,&URI_IDENTITY,&URI_VERIFY,&URI_ENROLL,&URI_CONFIG_ALL,&URI_SIP_PAGE,&URI_SIP_GET,&URI_SIP_POST,&URI_DIAG_PAGE,&URI_DIAG_POST};
+    const httpd_uri_t *uris[] = {&URI_STATUS,&URI_IDENTITY,&URI_VERIFY,&URI_ENROLL,&URI_CONFIG_ALL,&URI_SIP_PAGE,&URI_SIP_GET,&URI_SIP_POST,&URI_DIAG_PAGE,&URI_DIAG_POST,&URI_MAP_PAGE,&URI_MAP_GET,&URI_MAP_POST};
     for (size_t i=0;i<sizeof(uris)/sizeof(uris[0]);++i) {
         esp_err_t r=httpd_register_uri_handler(server,uris[i]);
         if (r!=ESP_OK) { ESP_LOGE(TAG,"Failed URI %s: %s",uris[i]->uri,esp_err_to_name(r)); e=r; }

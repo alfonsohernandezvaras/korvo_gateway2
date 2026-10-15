@@ -1,5 +1,6 @@
 #include "gateway_protocol.h"
 #include "gateway_io.h"
+#include "gateway_map.h"
 #include "gateway_services.h"
 #include "gateway_enrollment.h"
 #include "gateway_wifi.h"
@@ -130,6 +131,8 @@ size_t gateway_protocol_status_json(char *out, size_t out_len)
     gateway_sip_get_config(&sip_cfg);
     gateway_bt_get_status(&bt);
 
+    char map_json[160];
+    gateway_map_status_json(map_json, sizeof(map_json));
     char enroll_json[1400];
     char wifi_json[700];
     gateway_enrollment_status_json(enroll_json, sizeof(enroll_json));
@@ -145,7 +148,7 @@ size_t gateway_protocol_status_json(char *out, size_t out_len)
         "\"wiegand\":{\"last_bits\":%lu,\"last_raw\":\"%llX\"},"
         "\"sip\":{\"engine\":\"stub\",\"registered\":%s,\"state\":\"%s\",\"direction\":\"%s\",\"remote_extension\":\"%s\",\"remote_name\":\"%s\",\"extension\":\"%s\",\"extension_name\":\"%s\",\"central_extension\":\"%s\",\"central_name\":\"%s\",\"call_mode\":\"%s\"},"
         "\"bluetooth\":{\"engine\":\"stub\",\"connected\":%s,\"audio_ready\":%s,\"device\":\"%s\",\"profile\":\"%s\"},"
-        "\"wifi\":%s,\"enrollment\":%s}}",
+        "\"wifi\":%s,\"enrollment\":%s,\"gpio_map\":%s}}",
         GATEWAY_V2_LAYER_VERSION,
         (unsigned)KORVO_PROTOCOL_DICTIONARY_VERSION, gateway_dictionary_count(),
         (unsigned long)gateway_dictionary_fingerprint(),
@@ -157,7 +160,7 @@ size_t gateway_protocol_status_json(char *out, size_t out_len)
         sip.remote_extension, sip.remote_name, sip_cfg.extension, sip_cfg.extension_name,
         sip_cfg.central_extension, sip_cfg.central_name, gateway_call_mode_name(sip_cfg.call_mode),
         bt.connected ? "true" : "false", bt.audio_ready ? "true" : "false", bt.device, bt.profile,
-        wifi_json, enroll_json);
+        wifi_json, enroll_json, map_json);
     if (n < 0) return 0;
     return (size_t)n < out_len ? (size_t)n : out_len - 1;
 }
