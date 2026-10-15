@@ -10,13 +10,19 @@
 
 void gateway_diag_init(void) {}
 
-void gateway_diag_sim_wiegand(uint8_t format, uint32_t facility, uint32_t card, const char *raw_hex)
+void gateway_diag_sim_wiegand_reader(uint8_t reader, uint8_t format, uint32_t facility, uint32_t card, const char *raw_hex)
 {
+    if (reader != 1 && reader != 2) reader = 1;
     char payload[240];
     snprintf(payload, sizeof(payload),
-             "{\"reader\":1,\"format\":%u,\"facility\":%" PRIu32 ",\"card\":%" PRIu32 ",\"raw\":\"%s\",\"source\":\"simulator\"}",
-             format, facility, card, raw_hex ? raw_hex : "");
+             "{\"reader\":%u,\"format\":%u,\"facility\":%" PRIu32 ",\"card\":%" PRIu32 ",\"raw\":\"%s\",\"source\":\"simulator\"}",
+             reader, format, facility, card, raw_hex ? raw_hex : "");
     gateway_event_emit("reader.card", payload, true);
+}
+
+void gateway_diag_sim_wiegand(uint8_t format, uint32_t facility, uint32_t card, const char *raw_hex)
+{
+    gateway_diag_sim_wiegand_reader(1, format, facility, card, raw_hex);
 }
 
 void gateway_diag_sim_rex(bool active)

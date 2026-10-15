@@ -4,6 +4,7 @@
 #include "gateway_enrollment.h"
 #include "gateway_services.h"
 #include "gateway_diag.h"
+#include "gateway_events.h"
 #include "gateway_wifi.h"
 #include "gateway_discovery.h"
 #include "gateway_ws.h"
@@ -564,7 +565,7 @@ static esp_err_t diag_api_post(httpd_req_t *req)
     char action[48] = {0};
     form_value(body, "action", action, sizeof(action));
 
-    if (!strcmp(action, "wiegand")) gateway_diag_sim_wiegand((uint8_t)form_long(body,"format",26),(uint32_t)form_long(body,"facility",0),(uint32_t)form_long(body,"card",0),"");
+    if (!strcmp(action, "wiegand")) gateway_diag_sim_wiegand_reader((uint8_t)form_long(body,"reader",1),(uint8_t)form_long(body,"format",26),(uint32_t)form_long(body,"facility",0),(uint32_t)form_long(body,"card",0),"");
     else if (!strcmp(action, "rex_on")) gateway_diag_sim_rex(true);
     else if (!strcmp(action, "rex_off")) gateway_diag_sim_rex(false);
     else if (!strcmp(action, "door_open")) gateway_diag_sim_door(true);
@@ -596,6 +597,10 @@ static esp_err_t diag_api_post(httpd_req_t *req)
         gateway_diag_sim_wifi(true, ssid[0]?ssid:"KORVO-GW-SIM", mac[0]?mac:"02:00:00:00:00:02", (uint8_t)form_long(body,"channel",6),(int8_t)form_long(body,"rssi",-55),(uint16_t)form_long(body,"clients",1));
     }
     else if (!strcmp(action, "wifi_real")) gateway_diag_sim_wifi(false,"","",0,-127,0);
+    else if (!strcmp(action, "sim_relay")) gateway_event_emit("door.relay_on", "{}", true);
+    else if (!strcmp(action, "sim_beacon_on")) gateway_event_emit("beacon.on", "{}", true);
+    else if (!strcmp(action, "sim_beacon_off")) gateway_event_emit("beacon.off", "{}", true);
+    else if (!strcmp(action, "sim_wiegand_tx")) gateway_event_emit("wiegand.tx_done", "{\"source\":\"simulator\"}", true);
     else if (!strcmp(action, "relay")) gateway_diag_test_relay((uint32_t)form_long(body,"ms",5000));
     else if (!strcmp(action, "beacon_on")) gateway_diag_test_beacon(true);
     else if (!strcmp(action, "beacon_off")) gateway_diag_test_beacon(false);
@@ -614,7 +619,7 @@ static const char PAGE_CSS[] =
 "input,select{width:100%;background:#181510;color:#eee;border:1px solid #544526;border-radius:7px;padding:10px;font-size:14px}button{border:0;border-radius:8px;padding:10px 14px;background:#ffb300;color:#1a1510;font-weight:700;cursor:pointer}.danger{background:#c84d3a;color:white}.ghost{background:#393126;color:#ddd}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.msg{margin-top:10px;color:#ffcf66;font-size:13px}.wide{grid-column:1/-1}.bar{height:10px;background:#332b20;border-radius:6px;overflow:hidden}.fill{height:100%;background:#ffb300;width:0}.mono{font-family:ui-monospace,Consolas,monospace}@media(max-width:800px){.grid{grid-template-columns:1fr}.row{grid-template-columns:1fr}.wide{grid-column:auto}}</style>";
 
 static const char NAV[] =
-"<div class='tabs'><a href='/'>STATUS</a><a href='/config'>GATEWAY</a><a href='/sip'>SIP / VOIP</a><a href='/diagnostic'>DIAGNOSTICO</a><a href='/gpio-map'>GPIO / PALABRAS</a></div>";
+"<div class='tabs'><a href='/'>STATUS</a><a href='/config'>GATEWAY</a><a href='/sip'>SIP / VOIP</a><a href='/gpio-map'>GPIO SIMULADOR</a></div>";
 
 static esp_err_t send_page_start(httpd_req_t *req, const char *title, const char *active)
 {
@@ -645,23 +650,15 @@ static esp_err_t sip_page(httpd_req_t *req)
 
 static esp_err_t diag_page(httpd_req_t *req)
 {
-    if (!http_server_request_authenticated(req)) { httpd_resp_set_status(req,"303 See Other"); httpd_resp_set_hdr(req,"Location","/?auth_required=1"); return httpd_resp_send(req,NULL,0); }
-    send_page_start(req,"Diagnostic", "diag");
-    httpd_resp_sendstr_chunk(req,
-"<div class='grid'>"
-"<div class='card'><h2>WIEGAND SIMULATOR</h2><div class='row'><span class='label'>Format</span><select id='wf'><option>26</option><option>34</option><option>37</option></select></div><div class='row'><span class='label'>Facility</span><input id='wfac' value='101' type='number'></div><div class='row'><span class='label'>Card</span><input id='wcard' value='38724' type='number'></div><div class='actions'><button data-a='wiegand'>PRESENT CARD</button><button data-a='wiegand_tx' class='ghost'>TX PHYSICAL</button></div></div>"
-"<div class='card'><h2>DIGITAL INPUTS / OUTPUTS</h2><div class='actions'><button data-a='rex_on'>REX ON</button><button data-a='rex_off' class='ghost'>REX OFF</button><button data-a='door_open'>DOOR OPEN</button><button data-a='door_closed' class='ghost'>DOOR CLOSED</button><button data-a='door_forced' class='danger'>FORCED</button><button data-a='door_held' class='danger'>HELD OPEN</button></div><div class='actions'><button data-a='call_short'>CALL SHORT</button><button data-a='call_long'>CALL LONG</button></div><div class='actions'><button data-a='relay'>RELAY PULSE</button><button data-a='beacon_on'>BEACON ON</button><button data-a='beacon_off' class='ghost'>BEACON OFF</button><button data-a='beacon_flash'>BEACON FLASH</button></div></div>"
-"<div class='card'><h2>SIP SIMULATOR</h2><div class='row'><span class='label'>State</span><select id='ss'><option>idle</option><option>calling</option><option>ringing</option><option>incoming</option><option>connected</option><option>busy</option><option>no_answer</option><option>rejected</option><option>failed</option><option>ended</option></select></div><div class='row'><span class='label'>Direction</span><select id='sd'><option>incoming</option><option>outgoing</option></select></div><div class='row'><span class='label'>Extension</span><input id='se' value='300'></div><div class='row'><span class='label'>Name</span><input id='sn' value='Sala Control'></div><div class='actions'><button data-a='sip_state'>SEND STATE</button><button data-a='sip_registered'>REGISTERED</button><button data-a='sip_unregistered' class='ghost'>UNREGISTERED</button></div></div>"
-"<div class='card'><h2>ENROLLMENT / WIFI</h2><div class='actions'><button data-a='peer_ok'>PAIR OK</button><button data-a='peer_mismatch' class='danger'>MISMATCH</button><button data-a='peer_auth_fail' class='danger'>AUTH FAIL</button><button data-a='peer_offline' class='ghost'>OFFLINE</button></div><div class='row'><span class='label'>RSSI dBm</span><input id='rssi' value='-52' type='number'></div><div class='row'><span class='label'>Channel</span><input id='ch' value='6' type='number'></div><div class='actions'><button data-a='wifi'>SIMULATE WIFI</button><button data-a='wifi_real' class='ghost'>REAL WIFI</button></div></div>"
-"<div class='card'><h2>BLUETOOTH / AUDIO</h2><div class='row'><span class='label'>Device</span><input id='bd' value='TEST HEADSET'></div><div class='actions'><button data-a='bt_on'>BT CONNECTED</button><button data-a='bt_off' class='ghost'>BT OFF</button><button data-a='audio_ready'>AUDIO READY</button><button data-a='audio_not_ready' class='ghost'>AUDIO NOT READY</button></div></div>"
-"<div class='card'><h2>LIVE STATUS</h2><pre id='live' class='mono' style='white-space:pre-wrap;font-size:12px;max-height:420px;overflow:auto'></pre></div>"
-"</div><div id='msg' class='msg'></div>"
-"<script>const $=i=>document.getElementById(i);async function act(a){let p=new URLSearchParams({action:a,format:$('wf').value,facility:$('wfac').value,card:$('wcard').value,state:$('ss').value,direction:$('sd').value,extension:$('se').value,name:$('sn').value,device:$('bd').value,rssi:$('rssi').value,channel:$('ch').value,ssid:'KORVO-GW-SIM',clients:'1'});let r=await fetch('/api/gw/diag',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p});let d=await r.json();$('msg').textContent=d.ok?'Diagnostic action sent':'Error '+(d.error||'');setTimeout(status,100);}document.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>act(b.dataset.a));async function status(){let r=await fetch('/api/gw/status',{cache:'no-store'});let d=await r.json();$('live').textContent=JSON.stringify(d,null,2)}status();setInterval(status,2000);</script>");
-    httpd_resp_sendstr_chunk(req,"</div></body></html>");
-    return httpd_resp_sendstr_chunk(req,NULL);
+    httpd_resp_set_status(req,"303 See Other");
+    httpd_resp_set_hdr(req,"Location","/gpio-map");
+    return httpd_resp_send(req,NULL,0);
 }
 
-/* GW_V6_2_MAP_EDITOR: single fixed WT32-ETH01 template, no physical pin writes. */
+
+/* V6.5.1: restaurar API de mapa eliminada accidentalmente en la fusion. */
+static esp_err_t gw_map_page(httpd_req_t *req);
+
 static esp_err_t gw_map_api_get(httpd_req_t *req)
 {
     if (require_auth(req)!=ESP_OK) return ESP_OK;
@@ -702,42 +699,8 @@ static esp_err_t gw_map_api_post(httpd_req_t *req)
     if(e!=ESP_OK) return send_json(req,"{\"ok\":false,\"error\":\"invalid_map_or_nvs\"}");
     return gw_map_api_get(req);
 }
-static esp_err_t gw_map_page(httpd_req_t *req)
-{
-    if (!http_server_request_authenticated(req)) {
-        httpd_resp_set_status(req,"303 See Other");
-        httpd_resp_set_hdr(req,"Location","/?auth_required=1");
-        return httpd_resp_send(req,NULL,0);
-    }
-    send_page_start(req,"GPIO / Palabras","map");
-    httpd_resp_sendstr_chunk(req,
-      "<div class='card'><h2>Plantilla unica WT32-ETH01 / LAN8720</h2>"
-      "<p class='sub'>GPIO fisicos fijos del firmware. Este editor configura la habilitacion logica de cada funcion y su palabra del diccionario V1. "
-      "No cambia pines, no acciona salidas, no modifica Ethernet, Wiegand ni el router.</p>"
-      "<div id='summary' class='msg'>Leyendo NVS...</div>"
-      "<div style='overflow:auto'><table style='width:100%;border-collapse:collapse' id='rows'>"
-      "<thead><tr><th>Senal</th><th>GPIO</th><th>Palabra</th><th>Uso</th><th>Habilitada</th></tr></thead><tbody></tbody></table></div>"
-      "<div class='actions'><button id='saveMap'>GUARDAR PLANTILLA NVS</button><button class='ghost' id='reloadMap'>RECARGAR</button></div>"
-      "<div id='msgMap' class='msg'></div>"
-      "<p class='sub'>Las palabras reservadas para funciones futuras permanecen en el diccionario maestro; no se asignan a GPIO inexistentes. "
-      "El mapa solo es OK si todas las senales obligatorias estan habilitadas y la plantilla fue guardada.</p></div>"
-      "<script>const $=x=>document.getElementById(x);let rows=[];"
-      "async function loadMap(){try{let r=await fetch('/api/gw/map',{cache:'no-store'});let d=await r.json();"
-      "if(!d.rows)throw Error(d.error||'No data');rows=d.rows;"
-      "$('summary').textContent='NVS: '+(d.saved?'GUARDADA':'SIN GUARDAR')+' | Mapa: '+d.percent+'% | Estado: '+(d.ok?'OK':'INCOMPLETO')+' | Revision: '+d.revision;"
-      "let tb=$('rows').querySelector('tbody');tb.textContent='';"
-      "rows.forEach(x=>{let tr=document.createElement('tr');tr.style.borderBottom='1px solid #47381d';"
-      "[x.label,String(x.gpio),'0x'+x.word.toString(16).toUpperCase().padStart(2,'0'),x.required?'OBLIGATORIA':'OPCIONAL'].forEach(t=>{let td=document.createElement('td');td.style.padding='10px';td.textContent=t;tr.appendChild(td)});"
-      "let td=document.createElement('td');td.style.textAlign='center';let cb=document.createElement('input');cb.type='checkbox';cb.checked=x.enabled;cb.dataset.id=x.id;cb.style.width='auto';td.appendChild(cb);tr.appendChild(td);tb.appendChild(tr)});"
-      "}catch(e){$('msgMap').textContent='Error: '+e.message}}"
-      "$('reloadMap').onclick=loadMap;$('saveMap').onclick=async()=>{let p=new URLSearchParams();"
-      "rows.forEach(x=>{let cb=document.querySelector('input[data-id=\\\"'+x.id+'\\\"]');p.set('en'+x.id,cb&&cb.checked?'1':'0');p.set('word'+x.id,String(x.word))});"
-      "try{let r=await fetch('/api/gw/map',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p});let d=await r.json();"
-      "$('msgMap').textContent=d.rows?'Plantilla guardada en NVS':'Error: '+(d.error||'unknown');if(d.rows)loadMap()}catch(e){$('msgMap').textContent=e.message}};loadMap();</script>");
-    httpd_resp_sendstr_chunk(req,"</div></body></html>");
-    return httpd_resp_sendstr_chunk(req,NULL);
-}
 
+#include "gateway_gpio_v64_page.inc"
 static const httpd_uri_t URI_MAP_PAGE = {.uri="/gpio-map",.method=HTTP_GET,.handler=gw_map_page};
 static const httpd_uri_t URI_MAP_GET = {.uri="/api/gw/map",.method=HTTP_GET,.handler=gw_map_api_get};
 static const httpd_uri_t URI_MAP_POST = {.uri="/api/gw/map",.method=HTTP_POST,.handler=gw_map_api_post};

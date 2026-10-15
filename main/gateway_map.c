@@ -14,11 +14,11 @@ static const row_t ROWS[GW_MAP_ROWS] = {
     {"Puerta abierta", GW_GPIO_DOOR_SENSOR, KORVO_MSG_DOOR_OPENED, true},
     {"Pulsador llamada", GW_GPIO_CALL_BUTTON, KORVO_MSG_CALL_BUTTON, true},
     {"Rele apertura", GW_GPIO_DOOR_RELAY, KORVO_MSG_DOOR_OPEN, true},
-    {"Baliza", GW_GPIO_BEACON, 0, false},
-    {"Wiegand D0 RX", GW_GPIO_WIEGAND_D0_IN, 0, false},
-    {"Wiegand D1 RX", GW_GPIO_WIEGAND_D1_IN, 0, false},
-    {"Wiegand D0 TX", GW_GPIO_WIEGAND_D0_OUT, 0, false},
-    {"Wiegand D1 TX", GW_GPIO_WIEGAND_D1_OUT, 0, false}
+    {"Baliza", GW_GPIO_BEACON, KORVO_MSG_BEACON_STATUS, true},
+    {"Wiegand D0 RX", GW_GPIO_WIEGAND_D0_IN, KORVO_MSG_WIEGAND_D0_RX, true},
+    {"Wiegand D1 RX", GW_GPIO_WIEGAND_D1_IN, KORVO_MSG_WIEGAND_D1_RX, true},
+    {"Wiegand D0 TX", GW_GPIO_WIEGAND_D0_OUT, KORVO_MSG_WIEGAND_D0_TX, true},
+    {"Wiegand D1 TX", GW_GPIO_WIEGAND_D1_OUT, KORVO_MSG_WIEGAND_D1_TX, true}
 };
 static const char *NS = "gw_gpio_map";
 
@@ -43,7 +43,7 @@ void gateway_map_get(gateway_map_config_t *out)
     nvs_handle_t h;
     if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return;
     uint8_t version=0;
-    if (nvs_get_u8(h,"version",&version) == ESP_OK && version == 1) {
+    if (nvs_get_u8(h,"version",&version) == ESP_OK && version == 2) {
         uint8_t saved=0;
         if (nvs_get_u8(h,"saved",&saved) == ESP_OK && saved == 1) {
             size_t n=GW_MAP_ROWS;
@@ -96,7 +96,7 @@ esp_err_t gateway_map_save(const gateway_map_config_t *cfg)
     uint16_t mask=0;
     for(unsigned i=0;i<GW_MAP_ROWS;++i) if(cfg->enabled[i]) mask |= (uint16_t)(1u<<i);
     uint32_t rev=previous.revision+1;
-    if(e==ESP_OK)e=nvs_set_u8(h,"version",1);
+    if(e==ESP_OK)e=nvs_set_u8(h,"version",2);
     if(e==ESP_OK)e=nvs_set_blob(h,"words",cfg->word,GW_MAP_ROWS);
     if(e==ESP_OK)e=nvs_set_u16(h,"enabled",mask);
     if(e==ESP_OK)e=nvs_set_u32(h,"revision",rev);

@@ -15,6 +15,7 @@ extern "C" {
  * with simulated=true in the internal event envelope. */
 void gateway_diag_init(void);
 void gateway_diag_sim_wiegand(uint8_t format, uint32_t facility, uint32_t card, const char *raw_hex);
+void gateway_diag_sim_wiegand_reader(uint8_t reader, uint8_t format, uint32_t facility, uint32_t card, const char *raw_hex);
 void gateway_diag_sim_rex(bool active);
 void gateway_diag_sim_door(bool open);
 void gateway_diag_sim_door_forced(void);
