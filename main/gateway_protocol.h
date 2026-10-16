@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "esp_err.h"
 #include "gateway_events.h"
+#include "gateway_action_protocol.h"
 
 #ifdef __cplusplus
 extern "C" {
