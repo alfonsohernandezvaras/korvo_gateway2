@@ -1,0 +1,19 @@
+GATEWAY2 G2-01 AUDITORIA DE DICCIONARIO
+Fecha: 2026-10-16T10:26:49
+Commit: d5c5b89
+Estado git: firmware sin cambios; archivos auxiliares permitidos
+
+ARCHIVOS:
+main/gateway_protocol.h : EXISTE
+  
+#define GATEWAY_PROTOCOL_VERSION 1 | #define GATEWAY_V2_LAYER_VERSION "2.5.1"
+main/gateway_protocol.c : EXISTE
+  "sip.call" | "sip.answer" | "sip.reject" | "sip.hangup" | "sys.ping" | "sys.status" | "sip.status" | "door.unlock" | "door.lock" | "wiegand.tx"
+main/gateway_events.h : EXISTE
+main/gateway_services.h : EXISTE
+main/gateway_io.h : EXISTE
+main/korvo_protocol.h : EXISTE
+  
+#define KORVO_PROTOCOL_DICTIONARY_VERSION  2u
+main/korvo_protocol.c : EXISTE
+main/gateway_enrollment.h : EXISTE
