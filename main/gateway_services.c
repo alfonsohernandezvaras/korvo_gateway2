@@ -1,6 +1,7 @@
 #include "gateway_services.h"
 #include "gateway_events.h"
 extern void gateway_sip_register_start(void);
+extern void gateway_sip_call_start(void);
 
 #include <stdio.h>
 #include <string.h>
@@ -106,7 +107,8 @@ void gateway_services_init(void)
     s_cfg.call_timeout_s = 30;
     s_cfg.beacon_on_incoming = true;
     load_config_from_nvs();
-    gateway_sip_register_start(); /* G2-04 R4: controlled SIP diagnostic re-enable */
+    gateway_sip_register_start();
+    gateway_sip_call_start(); /* G2-04 R4: controlled SIP diagnostic re-enable */
     (void)gateway_events_add_listener(call_button_listener, NULL);
 }
 
