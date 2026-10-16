@@ -129,6 +129,10 @@ size_t gateway_protocol_status_json(char *out, size_t out_len)
     gateway_io_get_status(&io);
     gateway_sip_get_status(&sip);
     gateway_sip_get_config(&sip_cfg);
+    /* G2-03B: estado diagnostico, NO indica registro SIP. */
+    bool sip_config_ready = sip_cfg.server[0] && sip_cfg.extension[0] &&
+                            sip_cfg.password[0] && sip_cfg.central_extension[0] &&
+                            sip_cfg.port > 0;
     gateway_bt_get_status(&bt);
 
     char map_json[160];
@@ -146,7 +150,7 @@ size_t gateway_protocol_status_json(char *out, size_t out_len)
         "\"layer_version\":\"%s\",\"dictionary_version\":%u,\"dictionary_count\":%u,\"dictionary_fingerprint\":\"%08lX\",\"uptime_s\":%llu,\"free_heap\":%lu,"
         "\"io\":{\"rex\":%s,\"door\":\"%s\",\"relay\":%s,\"beacon\":%s},"
         "\"wiegand\":{\"last_bits\":%lu,\"last_raw\":\"%llX\"},"
-        "\"sip\":{\"engine\":\"stub\",\"registered\":%s,\"state\":\"%s\",\"direction\":\"%s\",\"remote_extension\":\"%s\",\"remote_name\":\"%s\",\"extension\":\"%s\",\"extension_name\":\"%s\",\"central_extension\":\"%s\",\"central_name\":\"%s\",\"call_mode\":\"%s\"},"
+        "\"sip\":{\"engine\":\"stub\",\"config_ready\":%s,\"registered\":%s,\"state\":\"%s\",\"direction\":\"%s\",\"remote_extension\":\"%s\",\"remote_name\":\"%s\",\"extension\":\"%s\",\"extension_name\":\"%s\",\"central_extension\":\"%s\",\"central_name\":\"%s\",\"call_mode\":\"%s\"},"
         "\"bluetooth\":{\"engine\":\"stub\",\"connected\":%s,\"audio_ready\":%s,\"device\":\"%s\",\"profile\":\"%s\"},"
         "\"wifi\":%s,\"enrollment\":%s,\"gpio_map\":%s}}",
         GATEWAY_V2_LAYER_VERSION,
@@ -156,7 +160,7 @@ size_t gateway_protocol_status_json(char *out, size_t out_len)
         io.rex_active ? "true" : "false", io.door_open ? "open" : "closed",
         io.relay_on ? "true" : "false", io.beacon_on ? "true" : "false",
         (unsigned long)io.last_wiegand_bits, (unsigned long long)io.last_wiegand_raw,
-        sip.registered ? "true" : "false", gateway_sip_state_name(sip.state), sip.direction,
+        sip_config_ready ? "true" : "false", sip.registered ? "true" : "false", gateway_sip_state_name(sip.state), sip.direction,
         sip.remote_extension, sip.remote_name, sip_cfg.extension, sip_cfg.extension_name,
         sip_cfg.central_extension, sip_cfg.central_name, gateway_call_mode_name(sip_cfg.call_mode),
         bt.connected ? "true" : "false", bt.audio_ready ? "true" : "false", bt.device, bt.profile,

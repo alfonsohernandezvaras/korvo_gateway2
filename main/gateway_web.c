@@ -530,14 +530,21 @@ static esp_err_t sip_api_post(httpd_req_t *req)
     gateway_sip_get_config(&c);
     char tmp[96];
     if (form_value(body, "server", tmp, sizeof(tmp))) { if (strlen(tmp) >= sizeof(c.server)) return send_json(req, "{\"ok\":false,\"error\":\"server_too_long\"}"); strlcpy(c.server, tmp, sizeof(c.server)); }
-    c.port = (uint16_t)form_long(body, "port", c.port ? c.port : 5060);
+    /* G2-03B: validar antes de convertir a uint16_t; sin cambiar el formulario existente. */
+    long sip_port = form_long(body, "port", c.port ? c.port : 5060);
+    if (sip_port < 1 || sip_port > 65535)
+        return send_json(req, "{\"ok\":false,\"error\":\"invalid_sip_port\"}");
+    c.port = (uint16_t)sip_port;
     if (form_value(body, "extension", tmp, sizeof(tmp))) { if (strlen(tmp) >= sizeof(c.extension)) return send_json(req, "{\"ok\":false,\"error\":\"extension_too_long\"}"); strlcpy(c.extension, tmp, sizeof(c.extension)); }
     if (form_value(body, "extension_name", tmp, sizeof(tmp))) { if (strlen(tmp) >= sizeof(c.extension_name)) return send_json(req, "{\"ok\":false,\"error\":\"extension_name_too_long\"}"); strlcpy(c.extension_name, tmp, sizeof(c.extension_name)); }
     if (form_value(body, "password", tmp, sizeof(tmp)) && tmp[0]) { if (strlen(tmp) >= sizeof(c.password)) return send_json(req, "{\"ok\":false,\"error\":\"password_too_long\"}"); strlcpy(c.password, tmp, sizeof(c.password)); }
     if (form_value(body, "central_extension", tmp, sizeof(tmp))) { if (strlen(tmp) >= sizeof(c.central_extension)) return send_json(req, "{\"ok\":false,\"error\":\"central_extension_too_long\"}"); strlcpy(c.central_extension, tmp, sizeof(c.central_extension)); }
     if (form_value(body, "central_name", tmp, sizeof(tmp))) { if (strlen(tmp) >= sizeof(c.central_name)) return send_json(req, "{\"ok\":false,\"error\":\"central_name_too_long\"}"); strlcpy(c.central_name, tmp, sizeof(c.central_name)); }
     if (form_value(body, "call_mode", tmp, sizeof(tmp))) c.call_mode = parse_call_mode(tmp);
-    c.call_timeout_s = (uint32_t)form_long(body, "timeout_s", c.call_timeout_s ? c.call_timeout_s : 30);
+    long sip_timeout = form_long(body, "timeout_s", c.call_timeout_s ? c.call_timeout_s : 30);
+    if (sip_timeout < 1 || sip_timeout > 3600)
+        return send_json(req, "{\"ok\":false,\"error\":\"invalid_sip_timeout\"}");
+    c.call_timeout_s = (uint32_t)sip_timeout;
     c.beacon_on_incoming = form_long(body, "beacon_on_incoming", 0) != 0;
     gateway_sip_set_config(&c);
     return send_json(req, "{\"ok\":true}");
