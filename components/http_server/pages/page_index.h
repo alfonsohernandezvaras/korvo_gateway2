@@ -12,7 +12,7 @@
 </style>\
 </head><body><div id='container'>\
 <div class='head'><div class='brand'><a href='/'><img src='/favicon.png' alt='Home'></a><div><h1>KORVO Gateway V2.5</h1><p>WT32-ETH01 · Access / SIP Gateway</p></div></div></div>\
-<div class='tabs'><a class='active' href='/'>STATUS</a><a href='/config'>GATEWAY</a><a href='/sip'>SIP / VOIP</a><a href='/diagnostic'>DIAGNOSTICO</a></div>"
+<div class='tabs'><a class='active' href='/'>STATUS</a><a href='/config'>GATEWAY</a><a href='/sip'>SIP / VOIP</a><a href='/gpio-map'>GPIO SIMULADOR</a></div>"
 
 #define INDEX_CHUNK_STATUS_OPEN "\
 <div id='gwGrid' class='grid'>\

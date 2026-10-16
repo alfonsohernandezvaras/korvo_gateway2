@@ -628,7 +628,7 @@ static esp_err_t send_page_start(httpd_req_t *req, const char *title, const char
     httpd_resp_sendstr_chunk(req, title);
     httpd_resp_sendstr_chunk(req, "</title>");
     httpd_resp_sendstr_chunk(req, PAGE_CSS);
-    httpd_resp_sendstr_chunk(req, "</head><body><div class='shell'><div class='top'><div><div class='title'>KORVO GATEWAY</div><div class='sub'>WT32-ETH01 · Gateway V2.5.1</div></div></div>");
+    httpd_resp_sendstr_chunk(req, "</head><body><div class='shell'><div class='top'><div><div class='title'>KORVO Gateway V2.5</div><div class='sub'>WT32-ETH01 · Access / SIP Gateway</div></div></div>");
     (void)active;
     httpd_resp_sendstr_chunk(req, NAV);
     return ESP_OK;

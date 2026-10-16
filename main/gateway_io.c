@@ -20,9 +20,8 @@ static gateway_io_config_t s_cfg;
 static gateway_io_status_t s_status;
 static TimerHandle_t s_relay_timer;
 static portMUX_TYPE s_wiegand_mux = portMUX_INITIALIZER_UNLOCKED;
-static volatile uint64_t s_wiegand_raw;
-static volatile uint8_t s_wiegand_bits;
-static volatile int64_t s_wiegand_last_us;
+typedef struct { volatile uint64_t raw; volatile uint8_t bits; volatile int64_t last_us; } wiegand_rx_t;
+static wiegand_rx_t s_wiegand[2];
 static bool s_isr_service_owned;
 
 static inline int output_level(bool active, bool active_high)
@@ -115,12 +114,17 @@ esp_err_t gateway_beacon_flash(uint32_t on_ms, uint32_t off_ms, uint32_t cycles)
 
 static void IRAM_ATTR wiegand_isr(void *arg)
 {
-    uint32_t bit = (uint32_t)(uintptr_t)arg;
+    /* Argumento codificado: reader * 2 + bit; 0/1 -> lector 1, 2/3 -> lector 2. */
+    uintptr_t line = (uintptr_t)arg;
+    unsigned reader = (unsigned)(line >> 1);
+    unsigned bit = (unsigned)(line & 1U);
+    if (reader >= 2) return;
     portENTER_CRITICAL_ISR(&s_wiegand_mux);
-    if (s_wiegand_bits < 64) {
-        s_wiegand_raw = (s_wiegand_raw << 1) | (bit & 1U);
-        s_wiegand_bits++;
-        s_wiegand_last_us = esp_timer_get_time();
+    wiegand_rx_t *w = &s_wiegand[reader];
+    if (w->bits < 64) {
+        w->raw = (w->raw << 1) | bit;
+        w->bits++;
+        w->last_us = esp_timer_get_time();
     }
     portEXIT_CRITICAL_ISR(&s_wiegand_mux);
 }
@@ -132,7 +136,7 @@ static int parity_even_u64(uint64_t v, uint8_t bits)
     return (ones & 1) == 0;
 }
 
-static void process_wiegand_frame(uint64_t raw, uint8_t bits)
+static void process_wiegand_frame(unsigned reader, uint64_t raw, uint8_t bits)
 {
     uint32_t facility = 0;
     uint32_t card = 0;
@@ -160,8 +164,8 @@ static void process_wiegand_frame(uint64_t raw, uint8_t bits)
 
     char payload[256];
     snprintf(payload, sizeof(payload),
-             "{\"reader\":1,\"format\":%u,\"facility\":%" PRIu32 ",\"card\":%" PRIu32 ",\"raw\":\"%0*llX\",\"parity\":\"%s\",\"source\":\"gpio\"}",
-             bits, facility, card, (bits + 3) / 4, (unsigned long long)raw, parity);
+             "{\"reader\":%u,\"format\":%u,\"facility\":%" PRIu32 ",\"card\":%" PRIu32 ",\"raw\":\"%0*llX\",\"parity\":\"%s\",\"source\":\"gpio\"}",
+             reader + 1, bits, facility, card, (bits + 3) / 4, (unsigned long long)raw, parity);
     gateway_event_emit("reader.card", payload, false);
 }
 
@@ -186,22 +190,21 @@ static void gateway_input_task(void *arg)
 
     while (true) {
         int64_t now = esp_timer_get_time();
-        uint64_t wg_raw = 0;
-        uint8_t wg_bits = 0;
-        int64_t wg_last = 0;
-
-        portENTER_CRITICAL(&s_wiegand_mux);
-        if (s_wiegand_bits > 0 && (now - s_wiegand_last_us) >= (int64_t)s_cfg.wiegand_frame_gap_ms * 1000LL) {
-            wg_raw = s_wiegand_raw;
-            wg_bits = s_wiegand_bits;
-            wg_last = s_wiegand_last_us;
-            s_wiegand_raw = 0;
-            s_wiegand_bits = 0;
-            s_wiegand_last_us = 0;
+        for (unsigned reader = 0; reader < 2; ++reader) {
+            uint64_t raw = 0;
+            uint8_t bits = 0;
+            portENTER_CRITICAL(&s_wiegand_mux);
+            wiegand_rx_t *w = &s_wiegand[reader];
+            if (w->bits && (now - w->last_us) >= (int64_t)s_cfg.wiegand_frame_gap_ms * 1000LL) {
+                raw = w->raw;
+                bits = w->bits;
+                w->raw = 0;
+                w->bits = 0;
+                w->last_us = 0;
+            }
+            portEXIT_CRITICAL(&s_wiegand_mux);
+            if (bits) process_wiegand_frame(reader, raw, bits);
         }
-        portEXIT_CRITICAL(&s_wiegand_mux);
-        (void)wg_last;
-        if (wg_bits) process_wiegand_frame(wg_raw, wg_bits);
 
         bool rex = input_active(GW_GPIO_REX, s_cfg.rex_active_low);
         if (rex != rex_last) {
@@ -265,19 +268,8 @@ esp_err_t gateway_io_init(const gateway_io_config_t *config)
     s_cfg = config ? *config : gateway_io_default_config();
     memset(&s_status, 0, sizeof(s_status));
 
-    gpio_config_t wg_out = {
-        .pin_bit_mask = (1ULL << GW_GPIO_WIEGAND_D0_OUT) |
-                        (1ULL << GW_GPIO_WIEGAND_D1_OUT),
-        .mode = GPIO_MODE_OUTPUT_OD,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    ESP_RETURN_ON_ERROR(gpio_config(&wg_out), TAG, "Wiegand output gpio_config");
-    /* Open-drain: 1 releases the line, 0 creates the Wiegand pulse.
-     * External pull-up / field interface is required. */
-    gpio_set_level(GW_GPIO_WIEGAND_D0_OUT, 1);
-    gpio_set_level(GW_GPIO_WIEGAND_D1_OUT, 1);
+    /* V6.6: RXD/TXD ya NO son salidas; ambas lineas son entradas Wiegand lector 2. */
+    memset(s_wiegand, 0, sizeof(s_wiegand));
 
     gpio_config_t outputs = {
         .pin_bit_mask = (1ULL << GW_GPIO_DOOR_RELAY) | (1ULL << GW_GPIO_BEACON),
@@ -291,7 +283,8 @@ esp_err_t gateway_io_init(const gateway_io_config_t *config)
     gpio_set_level(GW_GPIO_BEACON, output_level(false, s_cfg.beacon_active_high));
 
     gpio_config_t wg_in = {
-        .pin_bit_mask = (1ULL << GW_GPIO_WIEGAND_D0_IN) | (1ULL << GW_GPIO_WIEGAND_D1_IN),
+        .pin_bit_mask = (1ULL << GW_GPIO_WIEGAND_D0_IN) | (1ULL << GW_GPIO_WIEGAND_D1_IN) |
+                        (1ULL << GW_GPIO_WIEGAND_D0_OUT) | (1ULL << GW_GPIO_WIEGAND_D1_OUT),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_DISABLE, /* GPIO35/36 have no internal pullups */
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -323,13 +316,15 @@ esp_err_t gateway_io_init(const gateway_io_config_t *config)
     else if (isr_err != ESP_ERR_INVALID_STATE) return isr_err;
     ESP_RETURN_ON_ERROR(gpio_isr_handler_add(GW_GPIO_WIEGAND_D0_IN, wiegand_isr, (void *)(uintptr_t)0), TAG, "D0 ISR");
     ESP_RETURN_ON_ERROR(gpio_isr_handler_add(GW_GPIO_WIEGAND_D1_IN, wiegand_isr, (void *)(uintptr_t)1), TAG, "D1 ISR");
+    ESP_RETURN_ON_ERROR(gpio_isr_handler_add(GW_GPIO_WIEGAND_D0_OUT, wiegand_isr, (void *)(uintptr_t)2), TAG, "reader2 D0 ISR");
+    ESP_RETURN_ON_ERROR(gpio_isr_handler_add(GW_GPIO_WIEGAND_D1_OUT, wiegand_isr, (void *)(uintptr_t)3), TAG, "reader2 D1 ISR");
 
     s_relay_timer = xTimerCreate("gw_relay", pdMS_TO_TICKS(5000), pdFALSE, NULL, relay_timer_cb);
     if (!s_relay_timer) return ESP_ERR_NO_MEM;
 
     if (xTaskCreate(gateway_input_task, "gw_inputs", 4096, NULL, 8, NULL) != pdPASS) return ESP_ERR_NO_MEM;
 
-    ESP_LOGI(TAG, "GPIO V1 initialized: D0in=%d D1in=%d D0out=%d D1out=%d REX=%d DOOR=%d CALL=%d RELAY=%d BEACON=%d",
+    ESP_LOGI(TAG, "GPIO V6.6: reader1 IO35/IO36=%d/%d reader2 RXD/TXD=%d/%d REX=%d DOOR=%d CALL=%d RELAY=%d BEACON=%d",
              GW_GPIO_WIEGAND_D0_IN, GW_GPIO_WIEGAND_D1_IN, GW_GPIO_WIEGAND_D0_OUT,
              GW_GPIO_WIEGAND_D1_OUT, GW_GPIO_REX, GW_GPIO_DOOR_SENSOR,
              GW_GPIO_CALL_BUTTON, GW_GPIO_DOOR_RELAY, GW_GPIO_BEACON);
@@ -341,45 +336,11 @@ void gateway_io_get_status(gateway_io_status_t *status)
     if (status) *status = s_status;
 }
 
-static uint64_t make_w26(uint32_t facility, uint32_t card)
-{
-    uint32_t data = ((facility & 0xFFU) << 16) | (card & 0xFFFFU);
-    uint32_t first12 = (data >> 12) & 0xFFFU;
-    uint32_t last12 = data & 0xFFFU;
-    uint64_t p_even = parity_even_u64(first12, 12) ? 0 : 1;
-    uint64_t p_odd = parity_even_u64(last12, 12) ? 1 : 0;
-    return (p_even << 25) | ((uint64_t)data << 1) | p_odd;
-}
-
-static uint64_t make_w34(uint32_t facility, uint32_t card)
-{
-    uint32_t data = ((facility & 0xFFFFU) << 16) | (card & 0xFFFFU);
-    uint32_t first16 = (data >> 16) & 0xFFFFU;
-    uint32_t last16 = data & 0xFFFFU;
-    uint64_t p_even = parity_even_u64(first16, 16) ? 0 : 1;
-    uint64_t p_odd = parity_even_u64(last16, 16) ? 1 : 0;
-    return (p_even << 33) | ((uint64_t)data << 1) | p_odd;
-}
-
+/* Se conserva la API por compatibilidad binaria/fuente, pero la transmision
+ * fisica esta DESHABILITADA: RXD/TXD son exclusivamente entradas lector 2. */
 esp_err_t gateway_wiegand_tx(uint8_t format, uint32_t facility, uint32_t card)
 {
-    uint64_t frame;
-    if (format == 26) frame = make_w26(facility, card);
-    else if (format == 34) frame = make_w34(facility, card);
-    else return ESP_ERR_NOT_SUPPORTED;
-
-    for (int bit = format - 1; bit >= 0; --bit) {
-        int gpio = ((frame >> bit) & 1ULL) ? GW_GPIO_WIEGAND_D1_OUT : GW_GPIO_WIEGAND_D0_OUT;
-        gpio_set_level(gpio, 0);
-        esp_rom_delay_us(50);
-        gpio_set_level(gpio, 1);
-        esp_rom_delay_us(1950);
-    }
-
-    char payload[160];
-    snprintf(payload, sizeof(payload),
-             "{\"format\":%u,\"facility\":%" PRIu32 ",\"card\":%" PRIu32 "}",
-             format, facility, card);
-    gateway_event_emit("wiegand.tx_done", payload, false);
-    return ESP_OK;
+    (void)format; (void)facility; (void)card;
+    ESP_LOGW(TAG, "Wiegand TX no disponible: RXD/TXD reservados a lector 2 RX");
+    return ESP_ERR_NOT_SUPPORTED;
 }

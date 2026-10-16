@@ -52,7 +52,7 @@ small { display: block; color: #888; font-size: 0.85rem; margin-top: 0.5rem; lin
 /* After logout section */
 #define CONFIG_CHUNK_SCRIPT "\
 </div>\
-<div class='tabs'><a href='/'>STATUS</a><a class='active' href='/config'>GATEWAY</a><a href='/sip'>SIP / VOIP</a><a href='/diagnostic'>DIAGNOSTICO</a></div>\
+<div class='tabs'><a href='/'>STATUS</a><a class='active' href='/config'>GATEWAY</a><a href='/sip'>SIP / VOIP</a><a href='/gpio-map'>GPIO SIMULADOR</a></div>\
 <script>\
 var qs = window.location.search.substr(1);\
 var formSubmitted = qs.indexOf('ap_ssid=') !== -1 || qs.indexOf('staticip=') !== -1 || qs.indexOf('reset=') !== -1 || qs.indexOf('disable_interface=') !== -1 || qs.indexOf('hostname=') !== -1 || qs.indexOf('pcap_save=') !== -1 || qs.indexOf('dhcps_save=') !== -1;\
