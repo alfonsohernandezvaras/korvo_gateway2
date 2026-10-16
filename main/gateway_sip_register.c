@@ -75,7 +75,7 @@ static bool send_register(int fd,const gateway_sip_config_t *c,const char *local
     }
     unsigned branch=esp_random();
     int len=snprintf(pkt,sizeof(pkt),
-      "REGISTER %s SIP/2.0\r\nVia: SIP/2.0/UDP %s:5062;branch=z9hG4bK%08lx;rport\r\nMax-Forwards: 70\r\n"
+      "REGISTER %s SIP/2.0\r\nVia: SIP/2.0/UDP %s:5066;branch=z9hG4bK%08lx;rport\r\nMax-Forwards: 70\r\n"
       "From: <sip:%s@%s>;tag=g2reg\r\nTo: <sip:%s@%s>\r\nCall-ID: %s\r\nCSeq: %u REGISTER\r\n"
       "Contact: <sip:%s@%s:5062>\r\nExpires: 120\r\nUser-Agent: Gateway2-G2-04\r\n%sContent-Length: 0\r\n\r\n",
       uri,localip,(unsigned long)branch,c->extension,c->server,c->extension,c->server,
@@ -88,7 +88,7 @@ static bool register_once(const gateway_sip_config_t *c){
     if(getaddrinfo(c->server,port,&hints,&res)!=0||!res){ESP_LOGW(TAG,"SIP DNS unavailable");return false;}
     int fd=socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP);
     if(fd<0){freeaddrinfo(res);return false;}
-    struct sockaddr_in local={0};local.sin_family=AF_INET;local.sin_port=htons(5062);local.sin_addr.s_addr=INADDR_ANY;
+    struct sockaddr_in local={0};local.sin_family=AF_INET;local.sin_port=htons(5066);local.sin_addr.s_addr=INADDR_ANY;
     if(bind(fd,(struct sockaddr*)&local,sizeof(local))!=0){ESP_LOGW(TAG,"SIP port 5062 busy");close(fd);freeaddrinfo(res);return false;}
     struct timeval tv={.tv_sec=3,.tv_usec=0};setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
     if(connect(fd,res->ai_addr,res->ai_addrlen)!=0){close(fd);freeaddrinfo(res);return false;}

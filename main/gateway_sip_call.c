@@ -17,8 +17,11 @@ static const char *TAG = "g2_sip_call";
 static QueueHandle_t s_actions;
 static bool s_started;
 
+extern esp_err_t gateway_sip_incoming_action(gateway_sip_action_t action);
 static esp_err_t action_cb(gateway_sip_action_t action, void *ctx) {
     (void)ctx;
+    if (action == GW_SIP_ACTION_ANSWER || action == GW_SIP_ACTION_REJECT) return gateway_sip_incoming_action(action);
+    if (action == GW_SIP_ACTION_HANGUP) { gateway_sip_status_t st; gateway_sip_get_status(&st); if (!strcmp(st.direction,"incoming")) return gateway_sip_incoming_action(action); }
     if (action != GW_SIP_ACTION_CALL && action != GW_SIP_ACTION_HANGUP) return ESP_ERR_NOT_SUPPORTED;
     if (!s_actions) return ESP_ERR_INVALID_STATE;
     return xQueueSend(s_actions, &action, 0) == pdTRUE ? ESP_OK : ESP_ERR_TIMEOUT;
