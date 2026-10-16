@@ -80,12 +80,15 @@ static void call_button_listener(const gateway_event_t *event, void *ctx)
 
     if (!strcmp(event->name, "call.short_press")) {
         if (s_cfg.call_mode == GW_CALL_DISABLED) return;
-        if ((s_sip.state == GW_SIP_IDLE || s_sip.state == GW_SIP_ENDED ||
-             s_sip.state == GW_SIP_FAILED || s_sip.state == GW_SIP_BUSY ||
-             s_sip.state == GW_SIP_NO_ANSWER || s_sip.state == GW_SIP_REJECTED) && call_mode_can_send()) {
-            (void)gateway_sip_request(GW_SIP_ACTION_CALL);
-        } else if (s_sip.state == GW_SIP_INCOMING && call_mode_can_receive()) {
+        if (s_sip.state == GW_SIP_INCOMING && call_mode_can_receive()) {
             (void)gateway_sip_request(GW_SIP_ACTION_ANSWER);
+        } else if (s_sip.state == GW_SIP_CALLING || s_sip.state == GW_SIP_RINGING ||
+                   s_sip.state == GW_SIP_CONNECTED) {
+            (void)gateway_sip_request(GW_SIP_ACTION_HANGUP);
+        } else if ((s_sip.state == GW_SIP_IDLE || s_sip.state == GW_SIP_ENDED ||
+                    s_sip.state == GW_SIP_FAILED || s_sip.state == GW_SIP_BUSY ||
+                    s_sip.state == GW_SIP_NO_ANSWER || s_sip.state == GW_SIP_REJECTED) && call_mode_can_send()) {
+            (void)gateway_sip_request(GW_SIP_ACTION_CALL);
         }
     } else if (!strcmp(event->name, "call.long_press")) {
         if (s_sip.state == GW_SIP_INCOMING && call_mode_can_receive()) {

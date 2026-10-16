@@ -60,6 +60,7 @@ static void in_task(void *arg){
         struct timeval tv={.tv_sec=0,.tv_usec=200000};setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
         ESP_LOGI(TAG,"SIP inbound listening UDP 5062");
         bool active=false,answered=false,waiting_ack=false;
+        unsigned bye_seq=2;
         struct sockaddr_in caller={0};char callid[160]="",from_ext[24]="",localip[32]="192.168.10.51";
         TickType_t start=0,last200=0;
         for(;;){
@@ -72,7 +73,18 @@ static void in_task(void *arg){
                     ESP_LOGI(TAG,"Incoming 200 OK sent; waiting ACK");
                 }else if(action==GW_SIP_ACTION_REJECT || action==GW_SIP_ACTION_HANGUP){
                     if(!answered){send_reply(fd,&caller,invite,486,"Busy Here",localip,false);}
-                    else {ESP_LOGW(TAG,"Local BYE not implemented yet; remote must hang up");continue;}
+                    else {
+                         char via[180],from[512],to[512],bye[1500];
+                         char remote_from[512]="",remote_to[512]="";
+                         header(invite,"From",remote_from,sizeof(remote_from));
+                         header(invite,"To",remote_to,sizeof(remote_to));
+                         snprintf(from,sizeof(from),"%s%s",remote_to,strstr(remote_to,";tag=")?"":";tag=g2in");
+                         snprintf(to,sizeof(to),"%s",remote_from);
+                         snprintf(via,sizeof(via),"SIP/2.0/UDP %s:5062;branch=z9hG4bKg2bye%lu;rport",localip,(unsigned long)bye_seq);
+                         int blen=snprintf(bye,sizeof(bye),"BYE sip:%s@%s SIP/2.0\r\nVia: %s\r\nMax-Forwards: 70\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %u BYE\r\nContent-Length: 0\r\n\r\n",from_ext,inet_ntoa(caller.sin_addr),via,from,to,callid,bye_seq++);
+                         if(blen>0 && blen<(int)sizeof(bye))sendto(fd,bye,blen,0,(struct sockaddr*)&caller,sizeof(caller));
+                         ESP_LOGI(TAG,"Incoming call local BYE sent");
+                     }
                     active=false;answered=false;waiting_ack=false;
                     gateway_sip_set_state(GW_SIP_ENDED,"incoming",from_ext,"",callid,false);
                 }

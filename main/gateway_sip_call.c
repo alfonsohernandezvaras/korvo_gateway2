@@ -24,6 +24,12 @@ static esp_err_t action_cb(gateway_sip_action_t action, void *ctx) {
     if (action == GW_SIP_ACTION_HANGUP) { gateway_sip_status_t st; gateway_sip_get_status(&st); if (!strcmp(st.direction,"incoming")) return gateway_sip_incoming_action(action); }
     if (action != GW_SIP_ACTION_CALL && action != GW_SIP_ACTION_HANGUP) return ESP_ERR_NOT_SUPPORTED;
     if (!s_actions) return ESP_ERR_INVALID_STATE;
+    if (action == GW_SIP_ACTION_CALL) {
+        gateway_sip_status_t st; gateway_sip_get_status(&st);
+        if (st.state == GW_SIP_INCOMING || st.state == GW_SIP_CALLING ||
+            st.state == GW_SIP_RINGING || st.state == GW_SIP_CONNECTED)
+            return ESP_ERR_INVALID_STATE;
+    }
     return xQueueSend(s_actions, &action, 0) == pdTRUE ? ESP_OK : ESP_ERR_TIMEOUT;
 }
 static int sip_code(const char *p) { int c=0; return sscanf(p,"SIP/2.0 %d",&c)==1?c:0; }
@@ -41,7 +47,10 @@ static void call_task(void *arg) {
         if(action!=GW_SIP_ACTION_CALL) continue;
         gateway_sip_config_t c; gateway_sip_get_config(&c);
         gateway_sip_status_t st; gateway_sip_get_status(&st);
-        if(!st.registered || !c.server[0] || !c.extension[0] || !c.central_extension[0] || c.call_mode==GW_CALL_DISABLED || c.call_mode==GW_CALL_RECEIVE_ONLY) {
+        if(!st.registered || st.state==GW_SIP_INCOMING || st.state==GW_SIP_CONNECTED ||
+           st.state==GW_SIP_CALLING || st.state==GW_SIP_RINGING ||
+           !c.server[0] || !c.extension[0] || !c.central_extension[0] ||
+           c.call_mode==GW_CALL_DISABLED || c.call_mode==GW_CALL_RECEIVE_ONLY) {
             ESP_LOGW(TAG,"Call rejected: registration/configuration not ready");continue;
         }
         struct addrinfo hints={0},*res=NULL;hints.ai_family=AF_INET;hints.ai_socktype=SOCK_DGRAM;
