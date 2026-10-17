@@ -137,8 +137,11 @@ static void in_task(void *arg){
                     ESP_LOGI(TAG,"STATE incoming caller=%s id=%s",from_ext,callid);
                     ESP_LOGI(TAG,"INCOMING %s -> 200 call-id %s",from_ext,callid);
                 }else if(same && !strncmp(rx,"ACK ",4)){
-                    waiting_ack=false;gateway_sip_set_state(GW_SIP_CONNECTED,"incoming",from_ext,"",callid,false);
-                    ESP_LOGI(TAG,"Incoming ACK received");
+                    if(answered && waiting_ack){
+                        waiting_ack=false;
+                        gateway_sip_set_state(GW_SIP_CONNECTED,"incoming",from_ext,"",callid,false);
+                        ESP_LOGI(TAG,"G2-07 ACK received; CONNECTED");
+                    }else ESP_LOGW(TAG,"G2-07 ACK ignored: no pending answer");
                 }else if(same && !strncmp(rx,"CANCEL ",7) && !answered){
                     send_reply(fd,&peer,rx,200,"OK",localip,false);
                     send_reply(fd,&caller,invite,487,"Request Terminated",localip,false);

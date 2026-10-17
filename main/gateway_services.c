@@ -79,9 +79,11 @@ static void call_button_listener(const gateway_event_t *event, void *ctx)
     if (!event) return;
 
     if (!strcmp(event->name, "call.short_press")) {
+        ESP_LOGI(TAG, "G2-07 SIMULAR SHORT: state=%s simulated=%d", gateway_sip_state_name(s_sip.state), event->simulated ? 1 : 0);
         if (s_cfg.call_mode == GW_CALL_DISABLED) return;
         if (s_sip.state == GW_SIP_INCOMING && call_mode_can_receive()) {
-            (void)gateway_sip_request(GW_SIP_ACTION_ANSWER);
+            esp_err_t err = gateway_sip_request(GW_SIP_ACTION_ANSWER);
+            ESP_LOGI(TAG, "G2-07 ANSWER result=%s", esp_err_to_name(err));
         } else if (s_sip.state == GW_SIP_CALLING || s_sip.state == GW_SIP_RINGING ||
                    s_sip.state == GW_SIP_CONNECTED) {
             (void)gateway_sip_request(GW_SIP_ACTION_HANGUP);
