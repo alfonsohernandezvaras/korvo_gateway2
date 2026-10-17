@@ -88,7 +88,7 @@ static void call_button_listener(const gateway_event_t *event, void *ctx)
         } else if ((s_sip.state == GW_SIP_IDLE || s_sip.state == GW_SIP_ENDED ||
                     s_sip.state == GW_SIP_FAILED || s_sip.state == GW_SIP_BUSY ||
                     s_sip.state == GW_SIP_NO_ANSWER || s_sip.state == GW_SIP_REJECTED) && call_mode_can_send()) {
-            (void)gateway_sip_request(GW_SIP_ACTION_CALL);
+            ESP_LOGI(TAG, "INVITE DIAG: outgoing CALL disabled for this test");
         }
     } else if (!strcmp(event->name, "call.long_press")) {
         if (s_sip.state == GW_SIP_INCOMING && call_mode_can_receive()) {

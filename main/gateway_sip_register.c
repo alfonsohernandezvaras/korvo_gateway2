@@ -8,6 +8,8 @@
 #include "esp_heap_caps.h"
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
+/* Existing NVS configuration API from cmd_router */
+extern esp_err_t get_config_param_str(char *name, char **param);
 #include "mbedtls/md5.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -93,9 +95,23 @@ static bool register_once(const gateway_sip_config_t *c){
     struct timeval tv={.tv_sec=3,.tv_usec=0};setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
     if(connect(fd,res->ai_addr,res->ai_addrlen)!=0){close(fd);freeaddrinfo(res);return false;}
     freeaddrinfo(res);
-    struct sockaddr_in own={0};socklen_t olen=sizeof(own);
-    if(getsockname(fd,(struct sockaddr*)&own,&olen)!=0){close(fd);return false;}
-    char localip[INET_ADDRSTRLEN];inet_ntop(AF_INET,&own.sin_addr,localip,sizeof(localip));
+    /* R7 SIP Management IP: same NVS static_ip used by WebServer/bridge.
+       Never infer SIP identity from Ethernet/WiFi socket routing. */
+    char *configured_ip = NULL;
+    esp_err_t ip_err = get_config_param_str("static_ip", &configured_ip);
+    struct in_addr parsed_ip;
+    if (ip_err != ESP_OK || !configured_ip ||
+        inet_pton(AF_INET, configured_ip, &parsed_ip) != 1 ||
+        parsed_ip.s_addr == INADDR_ANY ||
+        parsed_ip.s_addr == INADDR_BROADCAST) {
+        ESP_LOGE(TAG,"R7: invalid Management IP (static_ip), REGISTER postponed");
+        free(configured_ip);close(fd);return false;
+    }
+    char localip[INET_ADDRSTRLEN];
+    snprintf(localip,sizeof(localip),"%s",configured_ip);
+    free(configured_ip);
+    ESP_LOGI(TAG,"R7 SIP Management IP=%s ext=%s Via=:5066 Contact=:5062",
+             localip,c->extension);
     char callid[64];snprintf(callid,sizeof(callid),"g2-%08lx@%s",(unsigned long)esp_random(),localip);
     char reply[2200],challenge[700]="";bool ok=false;
     for(int step=0;step<2;step++){

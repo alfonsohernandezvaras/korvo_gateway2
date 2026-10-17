@@ -10,7 +10,10 @@
 #include <string.h>
 #include <strings.h>
 #include <ctype.h>
+#include <errno.h>
 
+/* G2-06 R3 RX DIAG: monitor de datagramas SIP entrantes */
+/* G2-06 R5 STACK FIX: respuestas SIP con buffer dinamico y pila ampliada */
 static const char *TAG="g2_sip_in";
 static QueueHandle_t s_commands;
 static bool s_started;
@@ -40,11 +43,18 @@ static void send_reply(int fd,const struct sockaddr_in *peer,const char *request
     char body[512]="";
     if(sdp)snprintf(body,sizeof(body),
         "v=0\r\no=Gateway2 1 1 IN IP4 %s\r\ns=Gateway2 signalling only\r\nc=IN IP4 %s\r\nt=0 0\r\nm=audio 0 RTP/AVP 0 8\r\na=inactive\r\n",local_ip,local_ip);
-    char response[2300];int n=snprintf(response,sizeof(response),
+    char *response=malloc(2300);
+    if(!response){ESP_LOGE(TAG,"SIP response malloc failed");return;}
+    int n=snprintf(response,2300,
         "SIP/2.0 %d %s\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContact: <sip:200@%s:5062>\r\nUser-Agent: Gateway2-G2-06\r\n%sContent-Length: %u\r\n\r\n%s",
         code,reason,via,from,to,cid,cseq,local_ip,sdp?"Content-Type: application/sdp\r\n":"",
         (unsigned)strlen(body),body);
-    if(n>0 && n<(int)sizeof(response))sendto(fd,response,n,0,(const struct sockaddr*)peer,sizeof(*peer));
+    if(n>0 && n<2300){
+        int sent=sendto(fd,response,(size_t)n,0,(const struct sockaddr*)peer,sizeof(*peer));
+        if(sent<0)ESP_LOGE(TAG,"SIP reply %d sendto failed errno=%d",code,errno);
+        else ESP_LOGI(TAG,"SIP reply %d sent=%d stack_free=%u",code,sent,(unsigned)uxTaskGetStackHighWaterMark(NULL));
+    }else ESP_LOGE(TAG,"SIP reply %d formatting failed n=%d",code,n);
+    free(response);
 }
 static void in_task(void *arg){
     (void)arg;
@@ -52,10 +62,10 @@ static void in_task(void *arg){
     if(!rx||!invite){ESP_LOGE(TAG,"No memory");free(rx);free(invite);vTaskDelete(NULL);return;}
     for(;;){
         int fd=socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP);
-        if(fd<0){vTaskDelay(pdMS_TO_TICKS(2000));continue;}
+        if(fd<0){ESP_LOGE(TAG,"UDP socket 5062 failed errno=%d",errno);vTaskDelay(pdMS_TO_TICKS(2000));continue;}
         struct sockaddr_in bindaddr={0};bindaddr.sin_family=AF_INET;bindaddr.sin_port=htons(5062);bindaddr.sin_addr.s_addr=INADDR_ANY;
         if(bind(fd,(struct sockaddr*)&bindaddr,sizeof(bindaddr))!=0){
-            ESP_LOGW(TAG,"SIP inbound 5062 unavailable; retrying");close(fd);vTaskDelay(pdMS_TO_TICKS(3000));continue;
+            ESP_LOGW(TAG,"SIP inbound 5062 bind failed errno=%d; retrying",errno);close(fd);vTaskDelay(pdMS_TO_TICKS(3000));continue;
         }
         struct timeval tv={.tv_sec=0,.tv_usec=200000};setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
         ESP_LOGI(TAG,"SIP inbound listening UDP 5062");
@@ -93,6 +103,15 @@ static void in_task(void *arg){
             int n=recvfrom(fd,rx,4095,0,(struct sockaddr*)&peer,&plen);
             if(n>0){
                 rx[n]=0;
+                /* G2-06 R4 TRACE: registro de primera linea y cabeceras SIP */
+                ESP_LOGI(TAG,"RX UDP 5062 from %s:%u bytes=%d",inet_ntoa(peer.sin_addr),(unsigned)ntohs(peer.sin_port),n);
+                ESP_LOGI(TAG,"SIP FIRST LINE %.*s",(int)strcspn(rx,"\r\n"),rx);
+                const char *diag_call=strstr(rx,"Call-ID:");
+                const char *diag_cseq=strstr(rx,"CSeq:");
+                if(diag_call)ESP_LOGI(TAG,"SIP Call-ID %.*s",(int)strcspn(diag_call+8,"\r\n"),diag_call+8);
+                else ESP_LOGW(TAG,"SIP Call-ID ausente");
+                if(diag_cseq)ESP_LOGI(TAG,"SIP CSeq %.*s",(int)strcspn(diag_cseq+5,"\r\n"),diag_cseq+5);
+                else ESP_LOGW(TAG,"SIP CSeq ausente");
                 char cid[160]="";header(rx,"Call-ID",cid,sizeof(cid));
                 bool same=active && !strcmp(cid,callid) && peer.sin_addr.s_addr==caller.sin_addr.s_addr;
                 if(!strncmp(rx,"INVITE ",7)){
@@ -115,6 +134,7 @@ static void in_task(void *arg){
                     send_reply(fd,&peer,rx,100,"Trying",localip,false);
                     send_reply(fd,&peer,rx,180,"Ringing",localip,false);
                     gateway_sip_set_state(GW_SIP_INCOMING,"incoming",from_ext,"",callid,false);
+                    ESP_LOGI(TAG,"STATE incoming caller=%s id=%s",from_ext,callid);
                     ESP_LOGI(TAG,"INCOMING %s -> 200 call-id %s",from_ext,callid);
                 }else if(same && !strncmp(rx,"ACK ",4)){
                     waiting_ack=false;gateway_sip_set_state(GW_SIP_CONNECTED,"incoming",from_ext,"",callid,false);
@@ -145,6 +165,6 @@ void gateway_sip_incoming_start(void){
     if(s_started)return;
     s_commands=xQueueCreate(4,sizeof(gateway_sip_action_t));
     if(!s_commands)return;
-    if(xTaskCreate(in_task,"g2_sip_in",8192,NULL,3,NULL)!=pdPASS){vQueueDelete(s_commands);s_commands=NULL;return;}
+    if(xTaskCreate(in_task,"g2_sip_in",16384,NULL,3,NULL)!=pdPASS){vQueueDelete(s_commands);s_commands=NULL;return;}
     s_started=true;
 }
