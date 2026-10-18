@@ -90,7 +90,8 @@ static void call_button_listener(const gateway_event_t *event, void *ctx)
         } else if ((s_sip.state == GW_SIP_IDLE || s_sip.state == GW_SIP_ENDED ||
                     s_sip.state == GW_SIP_FAILED || s_sip.state == GW_SIP_BUSY ||
                     s_sip.state == GW_SIP_NO_ANSWER || s_sip.state == GW_SIP_REJECTED) && call_mode_can_send()) {
-            ESP_LOGI(TAG, "INVITE DIAG: outgoing CALL disabled for this test");
+            esp_err_t err = gateway_sip_request(GW_SIP_ACTION_CALL);
+            ESP_LOGI(TAG, "G2-10 OUTGOING CALL request=%s", esp_err_to_name(err));
         }
     } else if (!strcmp(event->name, "call.long_press")) {
         if (s_sip.state == GW_SIP_INCOMING && call_mode_can_receive()) {

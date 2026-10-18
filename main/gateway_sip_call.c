@@ -81,7 +81,7 @@ static void call_task(void *arg) {
             "INVITE %s SIP/2.0\r\nVia: SIP/2.0/UDP %s:5064;branch=z9hG4bK%08lx;rport\r\nMax-Forwards: 70\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: 1 INVITE\r\nContact: <sip:%s@%s:5064>\r\nUser-Agent: Gateway2-G2-05\r\nContent-Type: application/sdp\r\nContent-Length: %d\r\n\r\n%s",
             uri,ip,(unsigned long)branch,from,to,cid,c.extension,ip,sn,sdp);
         if(n<=0 || n>=4096 || !sip_send(fd,tx)){close(fd);update(GW_SIP_FAILED,&c,cid);continue;}
-        ESP_LOGI(TAG,"INVITE sent %s -> %s",c.extension,c.central_extension);
+        ESP_LOGI(TAG,"G2-10 INVITE sent %s -> %s Call-ID=%s via=5064 SDP=inactive",c.extension,c.central_extension,cid);
         update(GW_SIP_CALLING,&c,cid);
         uint32_t timeout_ms=(c.call_timeout_s>=5 && c.call_timeout_s<=180?c.call_timeout_s:30)*1000;
         uint32_t elapsed=0;bool connected=false,finished=false,cancelled=false;
@@ -100,14 +100,22 @@ static void call_task(void *arg) {
             if(got>0){
                 rx[got]=0;int code=sip_code(rx);
                 if(code==0)continue;
-                ESP_LOGI(TAG,"SIP INVITE response %d",code);
+                ESP_LOGI(TAG,"G2-10 RX SIP response=%d Call-ID=%s bytes=%d",code,cid,got);
+                if(code==200){
+                    const char *body=strstr(rx,"\r\n\r\n");
+                    ESP_LOGI(TAG,"G2-10 RX 200 SDP: %s",body?body+4:"(sin cuerpo)");
+                }
                 char *tohdr=strstr(rx,"\r\nTo:");
                 if(tohdr){tohdr+=5;while(*tohdr==' ')tohdr++;char *end=strstr(tohdr,"\r\n");if(end && end-tohdr<(ptrdiff_t)sizeof(remote_to)){memcpy(remote_to,tohdr,(size_t)(end-tohdr));remote_to[end-tohdr]=0;}}
                 if(code==180 || code==183)update(GW_SIP_RINGING,&c,cid);
                 else if(code>=200){
                     if(code==200){
                         n=snprintf(tx,4096,"ACK %s SIP/2.0\r\nVia: SIP/2.0/UDP %s:5064;branch=z9hG4bK%08lx;rport\r\nMax-Forwards: 70\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: 1 ACK\r\nContent-Length: 0\r\n\r\n",uri,ip,(unsigned long)esp_random(),from,remote_to,cid);
-                        if(n>0 && n<4096)sip_send(fd,tx);
+                        if(n>0 && n<4096){
+                            bool ack_ok=sip_send(fd,tx);
+                            ESP_LOGI(TAG,"G2-10 TX ACK Call-ID=%s sent=%d",cid,ack_ok?1:0);
+                            if(!ack_ok){update(GW_SIP_FAILED,&c,cid);finished=true;break;}
+                        }else{ESP_LOGE(TAG,"G2-10 ACK formatting failed");update(GW_SIP_FAILED,&c,cid);finished=true;break;}
                         connected=true;update(GW_SIP_CONNECTED,&c,cid);
                     }else{update(code==486?GW_SIP_BUSY:code==487?GW_SIP_ENDED:GW_SIP_REJECTED,&c,cid);finished=true;}
                 }
