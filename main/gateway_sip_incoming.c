@@ -1,5 +1,6 @@
 /* G2-06: inbound SIP signalling only; no RTP/audio. */
 #include "gateway_services.h"
+#include "gateway_rtp_monitor.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -55,7 +56,7 @@ static void send_reply(int fd,const struct sockaddr_in *peer,const char *request
     if(!strstr(to,";tag="))strncat(to,";tag=g2in",sizeof(to)-strlen(to)-1);
     char body[512]="";
     if(sdp)snprintf(body,sizeof(body),
-        "v=0\r\no=Gateway2 1 1 IN IP4 %s\r\ns=Gateway2 signalling only\r\nc=IN IP4 %s\r\nt=0 0\r\nm=audio 40000 RTP/AVP 0 8\r\na=inactive\r\n",local_ip,local_ip);
+        "v=0\r\no=Gateway2 1 1 IN IP4 %s\r\ns=Gateway2 signalling only\r\nc=IN IP4 %s\r\nt=0 0\r\nm=audio 40000 RTP/AVP 0\r\na=recvonly\r\n",local_ip,local_ip);
     char *response=malloc(2300);
     if(!response){ESP_LOGE(TAG,"SIP response malloc failed");return;}
     int n=snprintf(response,2300,
@@ -83,6 +84,7 @@ static void in_task(void *arg){
         struct timeval tv={.tv_sec=0,.tv_usec=200000};setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
         ESP_LOGI(TAG,"SIP inbound listening UDP 5062");
         bool active=false,answered=false,waiting_ack=false;
+        gateway_rtp_monitor_active(false);
         unsigned bye_seq=2;
         struct sockaddr_in caller={0};char callid[160]="",from_ext[24]="",localip[32]="192.168.10.51";
         TickType_t start=0,last200=0,answer_start=0; unsigned retry200=0;
@@ -91,9 +93,10 @@ static void in_task(void *arg){
             while(xQueueReceive(s_commands,&action,0)==pdTRUE){
                 if(!active)continue;
                 if(action==GW_SIP_ACTION_ANSWER && !answered){
+                    gateway_rtp_monitor_active(true);
                     send_reply(fd,&caller,invite,200,"OK",localip,true);
                     answered=true;waiting_ack=true;last200=xTaskGetTickCount();answer_start=last200;retry200=0;
-                    ESP_LOGI(TAG,"G2-09 200 OK SDP: audio=40000 PCMU/PCMA inactive (NO RTP); waiting ACK");
+                    ESP_LOGI(TAG,"G2-14 SDP: PCMU recvonly RTP/AVP UDP 40000; waiting ACK");
                 }else if(action==GW_SIP_ACTION_REJECT || action==GW_SIP_ACTION_HANGUP){
                     if(!answered){send_reply(fd,&caller,invite,486,"Busy Here",localip,false);}
                     else {
@@ -109,6 +112,7 @@ static void in_task(void *arg){
                          ESP_LOGI(TAG,"Incoming call local BYE sent");
                      }
                     active=false;answered=false;waiting_ack=false;
+                    gateway_rtp_monitor_active(false);
                     gateway_sip_set_state(GW_SIP_ENDED,"incoming",from_ext,"",callid,false);
                 }
             }
@@ -139,6 +143,31 @@ static void in_task(void *arg){
                         send_reply(fd,&peer,rx,486,"Busy Here",localip,false);continue;
                     }
                     if(same){send_reply(fd,&peer,rx,answered?200:180,answered?"OK":"Ringing",localip,answered);continue;}
+                    /* G2-14: only accept plain RTP/AVP PCMU offers. */
+                    const char *offer=strstr(rx,"\r\n\r\n");
+                    const char *media=offer?strstr(offer+4,"m=audio "):NULL;
+                    bool compatible=false;
+                    if(media){
+                        const char *eol=strstr(media,"\r\n");
+                        char mline[256]="";
+                        if(eol && (size_t)(eol-media)<sizeof(mline)){
+                            memcpy(mline,media,(size_t)(eol-media));
+                            char *profile=strstr(mline," RTP/AVP ");
+                            if(profile){
+                                char *payloads=profile+9;
+                                while(*payloads){
+                                    while(*payloads==' ')payloads++;
+                                    if(*payloads=='0' && (payloads[1]==0||payloads[1]==' ')){compatible=true;break;}
+                                    while(*payloads && *payloads!=' ')payloads++;
+                                }
+                            }
+                        }
+                    }
+                    if(!compatible){
+                        ESP_LOGW(TAG,"G2-14 SDP unsupported: need RTP/AVP PCMU 0 (disable mandatory SRTP in Linphone)");
+                        send_reply(fd,&peer,rx,488,"Not Acceptable Here",localip,false);
+                        continue;
+                    }
                     if(!header(rx,"Call-ID",callid,sizeof(callid))){send_reply(fd,&peer,rx,400,"Bad Request",localip,false);continue;}
                     memcpy(invite,rx,(size_t)n+1);caller=peer;active=true;answered=false;waiting_ack=false;
                     start=xTaskGetTickCount();
@@ -179,11 +208,13 @@ static void in_task(void *arg){
                     if(!answered){
                         send_reply(fd,&caller,invite,487,"Request Terminated",localip,false);
                         active=false;waiting_ack=false;
+                        gateway_rtp_monitor_active(false);
                         gateway_sip_set_state(GW_SIP_ENDED,"incoming",from_ext,"",callid,false);
                     }else ESP_LOGW(TAG,"G2-08 late CANCEL after 200 OK; awaiting ACK/BYE or timeout");
                 }else if(same_dialog && !strncmp(rx,"BYE ",4)){
                     send_reply(fd,&peer,rx,200,"OK",localip,false);
                     active=false;answered=false;waiting_ack=false;
+                    gateway_rtp_monitor_active(false);
                     gateway_sip_set_state(GW_SIP_ENDED,"incoming",from_ext,"",callid,false);
                 }
             }
@@ -191,10 +222,11 @@ static void in_task(void *arg){
                 TickType_t now=xTaskGetTickCount();
                 if(!answered && (now-start)>pdMS_TO_TICKS(30000)){
                     send_reply(fd,&caller,invite,480,"Temporarily Unavailable",localip,false);
-                    active=false;gateway_sip_set_state(GW_SIP_NO_ANSWER,"incoming",from_ext,"",callid,false);
+                    active=false;gateway_rtp_monitor_active(false);gateway_sip_set_state(GW_SIP_NO_ANSWER,"incoming",from_ext,"",callid,false);
                 }else if(waiting_ack && now-answer_start>=pdMS_TO_TICKS(32000)){
                     ESP_LOGW(TAG,"G2-08 ACK TIMEOUT after 32s; 200 retries=%u",retry200);
                     active=false;answered=false;waiting_ack=false;
+                    gateway_rtp_monitor_active(false);
                     gateway_sip_set_state(GW_SIP_FAILED,"incoming",from_ext,"",callid,false);
                 }else if(waiting_ack && now-last200>=pdMS_TO_TICKS(1000)){
                     send_reply(fd,&caller,invite,200,"OK",localip,true);
@@ -206,6 +238,7 @@ static void in_task(void *arg){
 }
 void gateway_sip_incoming_start(void){
     if(s_started)return;
+    gateway_rtp_monitor_start();
     s_commands=xQueueCreate(4,sizeof(gateway_sip_action_t));
     if(!s_commands)return;
     if(xTaskCreate(in_task,"g2_sip_in",16384,NULL,3,NULL)!=pdPASS){vQueueDelete(s_commands);s_commands=NULL;return;}
