@@ -36,6 +36,17 @@ static bool header(const char *p,const char *name,char *out,size_t cap){
         }p=end+2;
     }return false;
 }
+static void parse_rtp_offer(const char *msg,char ip[16],uint16_t *port){
+    ip[0]=0;*port=0;
+    const char *body=strstr(msg,"\r\n\r\n");if(!body)return;body+=4;
+    const char *m=strstr(body,"m=audio ");if(!m)return;
+    unsigned p=0;if(sscanf(m,"m=audio %u",&p)!=1||p<1024||p>65535)return;
+    const char *c=strstr(body,"c=IN IP4 ");if(!c)return;
+    char candidate[32]={0};struct in_addr a;
+    if(sscanf(c,"c=IN IP4 %31s",candidate)==1 && inet_pton(AF_INET,candidate,&a)==1 && a.s_addr!=INADDR_ANY){
+        snprintf(ip,16,"%s",candidate);*port=(uint16_t)p;
+    }
+}
 static void send_reply(int fd,const struct sockaddr_in *peer,const char *request,
                        int code,const char *reason,const char *local_ip,bool sdp){
     char via[1200]="",from[512]="",to[512]="",cid[160]="",cseq[100]="";
@@ -56,7 +67,7 @@ static void send_reply(int fd,const struct sockaddr_in *peer,const char *request
     if(!strstr(to,";tag="))strncat(to,";tag=g2in",sizeof(to)-strlen(to)-1);
     char body[512]="";
     if(sdp)snprintf(body,sizeof(body),
-        "v=0\r\no=Gateway2 1 1 IN IP4 %s\r\ns=Gateway2 signalling only\r\nc=IN IP4 %s\r\nt=0 0\r\nm=audio 40000 RTP/AVP 0\r\na=recvonly\r\n",local_ip,local_ip);
+        "v=0\r\no=Gateway2 1 1 IN IP4 %s\r\ns=Gateway2 signalling only\r\nc=IN IP4 %s\r\nt=0 0\r\nm=audio 40000 RTP/AVP 0\r\na=sendrecv\r\n",local_ip,local_ip);
     char *response=malloc(2300);
     if(!response){ESP_LOGE(TAG,"SIP response malloc failed");return;}
     int n=snprintf(response,2300,
@@ -169,6 +180,10 @@ static void in_task(void *arg){
                         continue;
                     }
                     if(!header(rx,"Call-ID",callid,sizeof(callid))){send_reply(fd,&peer,rx,400,"Bad Request",localip,false);continue;}
+                    char peer_ip[16]={0};uint16_t peer_port=0;
+                    parse_rtp_offer(rx,peer_ip,&peer_port);
+                    if(!peer_port){send_reply(fd,&peer,rx,488,"Not Acceptable Here",localip,false);continue;}
+                    gateway_rtp_monitor_remote(peer_ip,peer_port);
                     memcpy(invite,rx,(size_t)n+1);caller=peer;active=true;answered=false;waiting_ack=false;
                     start=xTaskGetTickCount();
                     char from[512]="";header(rx,"From",from,sizeof(from));
