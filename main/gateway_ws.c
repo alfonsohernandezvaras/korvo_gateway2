@@ -244,7 +244,8 @@ esp_err_t gateway_ws_register(httpd_handle_t server)
         .method = HTTP_GET,
         .handler = ws_handler,
         .is_websocket = true,
-        .handle_ws_control_frames = true,
+        /* G2_P12_WS_CONTROL_FRAMES: let ESP-IDF handle PING/PONG. */
+        .handle_ws_control_frames = false,
     };
     esp_err_t err = httpd_register_uri_handler(server, &uri);
     if (err == ESP_OK) ESP_LOGI(TAG, "KORVO WebSocket ready at /ws/korvo (IP pair mode)");
