@@ -1,5 +1,6 @@
 /* G2-05: outbound SIP call signalling. RTP/audio deliberately not implemented. */
 #include "gateway_services.h"
+#include "gateway_rtp_monitor.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -74,14 +75,14 @@ static void call_task(void *arg) {
         snprintf(from,sizeof(from),"<sip:%s@%s>;tag=g2%08lx",c.extension,c.server,(unsigned long)id);
         snprintf(to,sizeof(to),"<sip:%s@%s>",c.central_extension,c.server);
         char sdp[512];int sn=snprintf(sdp,sizeof(sdp),
-            "v=0\r\no=Gateway2 %lu 1 IN IP4 %s\r\ns=Gateway2 test call\r\nc=IN IP4 %s\r\nt=0 0\r\nm=audio 40000 RTP/AVP 0 8\r\na=rtpmap:0 PCMU/8000\r\na=rtpmap:8 PCMA/8000\r\na=inactive\r\n",
+            "v=0\r\no=Gateway2 %lu 1 IN IP4 %s\r\ns=Gateway2 test call\r\nc=IN IP4 %s\r\nt=0 0\r\nm=audio 40000 RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\na=recvonly\r\n",
             (unsigned long)id,ip,ip);
         if(sn<=0 || sn>=(int)sizeof(sdp)){close(fd);continue;}
         int n=snprintf(tx,4096,
             "INVITE %s SIP/2.0\r\nVia: SIP/2.0/UDP %s:5064;branch=z9hG4bK%08lx;rport\r\nMax-Forwards: 70\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: 1 INVITE\r\nContact: <sip:%s@%s:5064>\r\nUser-Agent: Gateway2-G2-05\r\nContent-Type: application/sdp\r\nContent-Length: %d\r\n\r\n%s",
             uri,ip,(unsigned long)branch,from,to,cid,c.extension,ip,sn,sdp);
         if(n<=0 || n>=4096 || !sip_send(fd,tx)){close(fd);update(GW_SIP_FAILED,&c,cid);continue;}
-        ESP_LOGI(TAG,"G2-10 INVITE sent %s -> %s Call-ID=%s via=5064 SDP=inactive",c.extension,c.central_extension,cid);
+        ESP_LOGI(TAG,"G2-10 INVITE sent %s -> %s Call-ID=%s via=5064 SDP=recvonly",c.extension,c.central_extension,cid);
         update(GW_SIP_CALLING,&c,cid);
         uint32_t timeout_ms=(c.call_timeout_s>=5 && c.call_timeout_s<=180?c.call_timeout_s:30)*1000;
         uint32_t elapsed=0;bool connected=false,finished=false,cancelled=false;
@@ -116,7 +117,9 @@ static void call_task(void *arg) {
                             ESP_LOGI(TAG,"G2-10 TX ACK Call-ID=%s sent=%d",cid,ack_ok?1:0);
                             if(!ack_ok){update(GW_SIP_FAILED,&c,cid);finished=true;break;}
                         }else{ESP_LOGE(TAG,"G2-10 ACK formatting failed");update(GW_SIP_FAILED,&c,cid);finished=true;break;}
+                        gateway_rtp_monitor_active(true);
                         connected=true;update(GW_SIP_CONNECTED,&c,cid);
+                        ESP_LOGI(TAG,"G2-16 outbound RTP RX enabled UDP 40000");
                     }else{update(code==486?GW_SIP_BUSY:code==487?GW_SIP_ENDED:GW_SIP_REJECTED,&c,cid);finished=true;}
                 }
             }
@@ -124,6 +127,7 @@ static void call_task(void *arg) {
         }
         if(!finished && !connected)update(GW_SIP_NO_ANSWER,&c,cid);
         else if(!finished && connected)update(GW_SIP_ENDED,&c,cid);
+        if(connected) gateway_rtp_monitor_active(false);
         (void)cancelled;
         close(fd);
     }
