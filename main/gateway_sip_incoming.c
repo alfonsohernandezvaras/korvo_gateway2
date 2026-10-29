@@ -20,6 +20,8 @@ static const char *TAG="g2_sip_in";
 extern esp_err_t get_config_param_str(char *name, char **param);
 static QueueHandle_t s_commands;
 static bool s_started;
+/* G2-18.1 SIP stability: outgoing call BYE arrives at advertised Contact 5062. */
+extern void gateway_sip_outgoing_bye_received(const char *cid);
 
 esp_err_t gateway_sip_incoming_action(gateway_sip_action_t a){
     if(!s_commands)return ESP_ERR_INVALID_STATE;
@@ -146,6 +148,22 @@ static void in_task(void *arg){
                    while INVITE was forwarded by Kiosk. Match active Call-ID,
                    not the original UDP source address. */
                 bool same_dialog=active && cid[0] && callid[0] && !strcmp(cid,callid);
+                if(!strncmp(rx,"BYE ",4) && !same_dialog){
+                    /* SIP BYE for outgoing dialog: always acknowledge on 5062.
+                       Notify outgoing task by Call-ID; it owns RTP shutdown. */
+                    gateway_sip_status_t outst;gateway_sip_get_status(&outst);
+                    if(cid[0] && !strcmp(outst.direction,"outgoing") &&
+                       !strcmp(cid,outst.call_id) &&
+                       (outst.state==GW_SIP_CONNECTED || outst.state==GW_SIP_CALLING ||
+                        outst.state==GW_SIP_RINGING)){
+                        send_reply(fd,&peer,rx,200,"OK",localip,false);
+                        gateway_sip_outgoing_bye_received(cid);
+                        ESP_LOGI(TAG,"G2-18.1 outbound BYE acknowledged on UDP 5062 cid=%s",cid);
+                    }else{
+                        send_reply(fd,&peer,rx,481,"Call/Transaction Does Not Exist",localip,false);
+                    }
+                    continue;
+                }
                 if(!strncmp(rx,"INVITE ",7)){
                     gateway_sip_config_t cfg;gateway_sip_get_config(&cfg);
                     gateway_sip_status_t status;gateway_sip_get_status(&status);

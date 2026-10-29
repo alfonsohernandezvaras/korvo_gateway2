@@ -17,6 +17,28 @@
 static const char *TAG = "g2_sip_call";
 static QueueHandle_t s_actions;
 static bool s_started;
+/* G2-18.1 SIP stability: bridge BYE delivered to Contact port 5062. */
+static portMUX_TYPE g2181_lock=portMUX_INITIALIZER_UNLOCKED;
+static char g2181_outgoing_cid[64];
+static bool g2181_remote_bye;
+void gateway_sip_outgoing_bye_received(const char *cid){
+    if(!cid || !cid[0])return;
+    portENTER_CRITICAL(&g2181_lock);
+    if(g2181_outgoing_cid[0] && !strcmp(cid,g2181_outgoing_cid))
+        g2181_remote_bye=true;
+    portEXIT_CRITICAL(&g2181_lock);
+}
+static void g2181_dialog(const char *cid){
+    portENTER_CRITICAL(&g2181_lock);
+    snprintf(g2181_outgoing_cid,sizeof(g2181_outgoing_cid),"%s",cid?cid:"");
+    g2181_remote_bye=false;
+    portEXIT_CRITICAL(&g2181_lock);
+}
+static bool g2181_bye_seen(void){
+    bool v;
+    portENTER_CRITICAL(&g2181_lock);v=g2181_remote_bye;portEXIT_CRITICAL(&g2181_lock);
+    return v;
+}
 
 extern esp_err_t gateway_sip_incoming_action(gateway_sip_action_t action);
 static esp_err_t action_cb(gateway_sip_action_t action, void *ctx) {
@@ -37,6 +59,53 @@ static int sip_code(const char *p) { int c=0; return sscanf(p,"SIP/2.0 %d",&c)==
 static bool sip_send(int fd,const char *msg) { size_t n=strlen(msg);return send(fd,msg,n,0)==(int)n; }
 static void update(gateway_sip_state_t st,const gateway_sip_config_t *c,const char *cid) {
     gateway_sip_set_state(st,"outgoing",c->central_extension,c->central_name,cid,false);
+}
+/* G2-18: destino RTP negociado en el SDP del 200 OK (nunca por numero de anexo). */
+static bool g218_rtp_answer(const char *response, char ip[16], uint16_t *port) {
+    ip[0]=0; *port=0;
+    const char *body=strstr(response,"\r\n\r\n");
+    if(!body)return false;
+    body+=4;
+    const char *line=body;
+    bool media=false,pcmu=false,disabled=false;
+    char session_ip[16]={0}, media_ip[16]={0};
+    unsigned media_port=0;
+    while(*line){
+        const char *end=strstr(line,"\r\n");
+        size_t len=end?(size_t)(end-line):strlen(line);
+        if(len>=2 && !strncmp(line,"m=",2)){
+            if(media)break; /* solo primera seccion de audio */
+            if(len>=8 && !strncmp(line,"m=audio ",8)){
+                unsigned p=0; char proto[24]={0};
+                if(sscanf(line,"m=audio %u %23s",&p,proto)==2 && p>=1024 && p<=65535 && !strcmp(proto,"RTP/AVP")){
+                    media=true;media_port=p;
+                    const char *payload=strstr(line," RTP/AVP ");
+                    if(payload && (size_t)(payload-line)<len){
+                        payload+=9;
+                        while(payload<line+len){
+                            while(payload<line+len && *payload==' ')payload++;
+                            if(payload>=line+len)break;
+                            if(*payload=='0' && (payload+1==line+len || payload[1]==' ')){pcmu=true;break;}
+                            while(payload<line+len && *payload!=' ')payload++;
+                        }
+                    }
+                }
+            }
+        }else if(len>9 && !strncmp(line,"c=IN IP4 ",9)){
+            char tmp[32]={0}; struct in_addr a;
+            if(sscanf(line,"c=IN IP4 %31s",tmp)==1 && inet_pton(AF_INET,tmp,&a)==1 && a.s_addr!=INADDR_ANY && a.s_addr!=INADDR_BROADCAST){
+                if(media)snprintf(media_ip,sizeof(media_ip),"%s",tmp);
+                else snprintf(session_ip,sizeof(session_ip),"%s",tmp);
+            }
+        }else if(media && len==10 && !strncmp(line,"a=recvonly",10))disabled=true;
+        else if(media && len==10 && !strncmp(line,"a=inactive",10))disabled=true;
+        if(!end)break;
+        line=end+2;
+    }
+    const char *chosen=media_ip[0]?media_ip:session_ip;
+    if(!media || !pcmu || disabled || !chosen[0])return false;
+    snprintf(ip,16,"%s",chosen);*port=(uint16_t)media_port;
+    return true;
 }
 static void call_task(void *arg) {
     (void)arg;
@@ -70,25 +139,33 @@ static void call_task(void *arg) {
         if(own.sin_addr.s_addr!=INADDR_ANY) inet_ntop(AF_INET,&own.sin_addr,ip,sizeof(ip));
         unsigned id=esp_random(),branch=esp_random();
         char cid[40];snprintf(cid,sizeof(cid),"g2-%08lx",(unsigned long)id);
+        g2181_dialog(cid);
         char uri[128];snprintf(uri,sizeof(uri),"sip:%s@%s",c.central_extension,c.server);
         char from[160],to[160];
         snprintf(from,sizeof(from),"<sip:%s@%s>;tag=g2%08lx",c.extension,c.server,(unsigned long)id);
         snprintf(to,sizeof(to),"<sip:%s@%s>",c.central_extension,c.server);
         char sdp[512];int sn=snprintf(sdp,sizeof(sdp),
-            "v=0\r\no=Gateway2 %lu 1 IN IP4 %s\r\ns=Gateway2 test call\r\nc=IN IP4 %s\r\nt=0 0\r\nm=audio 40000 RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\na=recvonly\r\n",
+            "v=0\r\no=Gateway2 %lu 1 IN IP4 %s\r\ns=Gateway2 test call\r\nc=IN IP4 %s\r\nt=0 0\r\nm=audio 40000 RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\na=sendrecv\r\n",
             (unsigned long)id,ip,ip);
         if(sn<=0 || sn>=(int)sizeof(sdp)){close(fd);continue;}
         int n=snprintf(tx,4096,
             "INVITE %s SIP/2.0\r\nVia: SIP/2.0/UDP %s:5064;branch=z9hG4bK%08lx;rport\r\nMax-Forwards: 70\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: 1 INVITE\r\nContact: <sip:%s@%s:5064>\r\nUser-Agent: Gateway2-G2-05\r\nContent-Type: application/sdp\r\nContent-Length: %d\r\n\r\n%s",
             uri,ip,(unsigned long)branch,from,to,cid,c.extension,ip,sn,sdp);
         if(n<=0 || n>=4096 || !sip_send(fd,tx)){close(fd);update(GW_SIP_FAILED,&c,cid);continue;}
-        ESP_LOGI(TAG,"G2-10 INVITE sent %s -> %s Call-ID=%s via=5064 SDP=recvonly",c.extension,c.central_extension,cid);
+        ESP_LOGI(TAG,"G2-10 INVITE sent %s -> %s Call-ID=%s via=5064 SDP=sendrecv",c.extension,c.central_extension,cid);
         update(GW_SIP_CALLING,&c,cid);
         uint32_t timeout_ms=(c.call_timeout_s>=5 && c.call_timeout_s<=180?c.call_timeout_s:30)*1000;
         uint32_t elapsed=0;bool connected=false,finished=false,cancelled=false;
         char remote_to[256];snprintf(remote_to,sizeof(remote_to),"%s",to);
         struct timeval tv={.tv_sec=0,.tv_usec=250000};setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
-        while(!finished && elapsed<timeout_ms){
+        /* G2-18.1: after 200 OK do not use dial timeout as call duration. */
+        while(!finished && (!connected ? elapsed<timeout_ms : true)){
+            if(g2181_bye_seen()){
+                ESP_LOGI(TAG,"G2-18.1 remote BYE received; closing outgoing RTP");
+                update(GW_SIP_ENDED,&c,cid);
+                finished=true;
+                break;
+            }
             gateway_sip_action_t pending;
             if(xQueueReceive(s_actions,&pending,0)==pdTRUE && pending==GW_SIP_ACTION_HANGUP){
                 const char *method=connected?"BYE":"CANCEL";
@@ -117,9 +194,17 @@ static void call_task(void *arg) {
                             ESP_LOGI(TAG,"G2-10 TX ACK Call-ID=%s sent=%d",cid,ack_ok?1:0);
                             if(!ack_ok){update(GW_SIP_FAILED,&c,cid);finished=true;break;}
                         }else{ESP_LOGE(TAG,"G2-10 ACK formatting failed");update(GW_SIP_FAILED,&c,cid);finished=true;break;}
+                        char media_ip[16]={0};uint16_t media_port=0;
+                        if(!g218_rtp_answer(rx,media_ip,&media_port)){
+                            ESP_LOGE(TAG,"G2-18 SDP remoto sin RTP/AVP PCMU valido o remoto recvonly/inactive: TX no habilitado");
+                        }
                         gateway_rtp_monitor_active(true);
+                        if(media_port){
+                            gateway_rtp_monitor_remote(media_ip,media_port);
+                            ESP_LOGI(TAG,"G2-18 outbound TX peer %s:%u (SDP 200 OK)",media_ip,(unsigned)media_port);
+                        }
                         connected=true;update(GW_SIP_CONNECTED,&c,cid);
-                        ESP_LOGI(TAG,"G2-16 outbound RTP RX enabled UDP 40000");
+                        ESP_LOGI(TAG,"G2-18 outbound RTP RX/TX UDP 40000");
                     }else{update(code==486?GW_SIP_BUSY:code==487?GW_SIP_ENDED:GW_SIP_REJECTED,&c,cid);finished=true;}
                 }
             }
@@ -128,6 +213,7 @@ static void call_task(void *arg) {
         if(!finished && !connected)update(GW_SIP_NO_ANSWER,&c,cid);
         else if(!finished && connected)update(GW_SIP_ENDED,&c,cid);
         if(connected) gateway_rtp_monitor_active(false);
+        g2181_dialog(NULL);
         (void)cancelled;
         close(fd);
     }
