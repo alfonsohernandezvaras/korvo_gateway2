@@ -725,11 +725,67 @@ static const httpd_uri_t URI_SIP_POST = {.uri="/api/gw/sip",.method=HTTP_POST,.h
 static const httpd_uri_t URI_DIAG_PAGE = {.uri="/diagnostic",.method=HTTP_GET,.handler=diag_page};
 static const httpd_uri_t URI_DIAG_POST = {.uri="/api/gw/diag",.method=HTTP_POST,.handler=diag_api_post};
 
+
+/* G2-20A_VIDEO_PAIRING: source IP is ALWAYS the configured pairing IP. */
+static esp_err_t g220_video_get(httpd_req_t *req)
+{
+    if(require_auth(req)!=ESP_OK)return ESP_OK;
+    gateway_enrollment_status_t pair;gateway_enrollment_get_status(&pair);
+    nvs_handle_t h;uint16_t port=80;char route[96]="/stream";size_t cap=sizeof(route);
+    uint8_t enabled=0;
+    if(nvs_open("gwv2",NVS_READONLY,&h)==ESP_OK){
+        nvs_get_u16(h,"video_port",&port);
+        nvs_get_u8(h,"video_enable",&enabled);
+        if(nvs_get_str(h,"video_route",route,&cap)!=ESP_OK)snprintf(route,sizeof(route),"/stream");
+        nvs_close(h);
+    }
+    char b[400];
+    snprintf(b,sizeof(b),
+      "{\"ok\":true,\"paired\":%s,\"ip\":\"%s\",\"enabled\":%s,\"port\":%u,\"route\":\"%s\",\"status\":\"%s\"}",
+      pair.control_allowed?"true":"false",pair.expected_peer.ip,
+      enabled?"true":"false",(unsigned)port,route,
+      !pair.control_allowed?"VIDEO DOWN":(enabled?"CONFIGURED":"DISABLED"));
+    return send_json(req,b);
+}
+static esp_err_t g220_video_post(httpd_req_t *req)
+{
+    if(require_auth(req)!=ESP_OK)return ESP_OK;
+    char body[256],portstr[16],route[96],enabled[8];
+    if(!recv_form(req,body,sizeof(body)))return send_json(req,"{\"ok\":false,\"error\":\"body\"}");
+    if(!form_value(body,"port",portstr,sizeof(portstr))||
+       !form_value(body,"route",route,sizeof(route))||
+       !form_value(body,"enabled",enabled,sizeof(enabled)))
+       return send_json(req,"{\"ok\":false,\"error\":\"missing_field\"}");
+    char *end=NULL;long n=strtol(portstr,&end,10);
+    if(end==portstr||*end||n<1||n>65535)return send_json(req,"{\"ok\":false,\"error\":\"invalid_port\"}");
+    size_t len=strlen(route);
+    if(len<2||len>80||route[0]!='/'||strstr(route,"..")||strchr(route,'?')||strchr(route,'#'))
+       return send_json(req,"{\"ok\":false,\"error\":\"invalid_route\"}");
+    for(size_t i=0;i<len;i++){
+        char c=route[i];
+        if(!((c>='a'&&c<='z')||(c>='A'&&c<='Z')||
+             (c>='0'&&c<='9')||c=='/'||c=='_'||c=='-'||c=='.'))
+            return send_json(req,"{\"ok\":false,\"error\":\"invalid_route\"}");
+    }
+    if(strcmp(enabled,"0")&&strcmp(enabled,"1"))return send_json(req,"{\"ok\":false,\"error\":\"invalid_enabled\"}");
+    nvs_handle_t h;esp_err_t er=nvs_open("gwv2",NVS_READWRITE,&h);
+    if(er!=ESP_OK)return send_json(req,"{\"ok\":false,\"error\":\"nvs_open\"}");
+    er=nvs_set_u16(h,"video_port",(uint16_t)n);
+    if(er==ESP_OK)er=nvs_set_str(h,"video_route",route);
+    if(er==ESP_OK)er=nvs_set_u8(h,"video_enable",(uint8_t)(enabled[0]=='1'));
+    if(er==ESP_OK)er=nvs_commit(h);
+    nvs_close(h);
+    if(er!=ESP_OK)return send_json(req,"{\"ok\":false,\"error\":\"nvs_save\"}");
+    return g220_video_get(req);
+}
+static const httpd_uri_t G220_VIDEO_GET={.uri="/api/gw/video",.method=HTTP_GET,.handler=g220_video_get};
+static const httpd_uri_t G220_VIDEO_POST={.uri="/api/gw/video",.method=HTTP_POST,.handler=g220_video_post};
+
 esp_err_t gateway_web_register(httpd_handle_t server)
 {
     if (!server) return ESP_ERR_INVALID_ARG;
     esp_err_t e = ESP_OK;
-    const httpd_uri_t *uris[] = {&URI_STATUS,&URI_IDENTITY,&URI_VERIFY,&URI_ENROLL,&URI_CONFIG_ALL,&URI_SIP_PAGE,&URI_SIP_GET,&URI_SIP_POST,&URI_DIAG_PAGE,&URI_DIAG_POST,&URI_MAP_PAGE,&URI_MAP_GET,&URI_MAP_POST};
+    const httpd_uri_t *uris[] = {&URI_STATUS,&URI_IDENTITY,&URI_VERIFY,&URI_ENROLL,&URI_CONFIG_ALL,&URI_SIP_PAGE,&URI_SIP_GET,&URI_SIP_POST,&URI_DIAG_PAGE,&URI_DIAG_POST,&URI_MAP_PAGE,&URI_MAP_GET,&URI_MAP_POST,&G220_VIDEO_GET,&G220_VIDEO_POST};
     for (size_t i=0;i<sizeof(uris)/sizeof(uris[0]);++i) {
         esp_err_t r=httpd_register_uri_handler(server,uris[i]);
         if (r!=ESP_OK) { ESP_LOGE(TAG,"Failed URI %s: %s",uris[i]->uri,esp_err_to_name(r)); e=r; }

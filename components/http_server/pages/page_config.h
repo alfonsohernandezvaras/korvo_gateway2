@@ -153,6 +153,7 @@ setTimeout(\"location.href = '/'\", 10000);\
 <table><tr><td>KORVO IP</td><td><input id='gwPeerIp' type='text' value='192.168.10.50'></td></tr><tr><td>Detected Name</td><td><span id='gwPeerName'>-</span></td></tr><tr><td>Hostname / Sala</td><td><span id='gwPeerHost'>-</span></td></tr><tr><td>Location</td><td><span id='gwPeerLocation'>-</span></td></tr><tr><td>Live source IP</td><td><span id='gwObservedIp'>-</span></td></tr></table>\
 <div style='display:flex;gap:.5rem;flex-wrap:wrap;margin:.75rem 0'><button type='button' class='ok-button' style='width:auto' onclick='gwVerify()'>VERIFY</button><button type='button' class='red-button' style='width:auto' onclick='gwClearEnrollment()'>REMOVE PAIRING</button></div>\
 <div class='gw-status' id='gwEnrollState'>Waiting pairing status...</div>\
+<div class='gw-video-pair' style='border-top:1px solid #665020;margin-top:14px;padding-top:12px'><h3 style='color:#ffb300'>KORVO VIDEO STREAM</h3><p>IP del video heredada del pairing. No se configura por separado.</p><table><tr><td>IP origen</td><td><b id='g220ip'>-</b></td></tr><tr><td>Video</td><td><select id='g220enable'><option value='0'>OFF</option><option value='1'>ON</option></select></td></tr><tr><td>Puerto HTTP</td><td><input id='g220port' type='number' min='1' max='65535' value='80'></td></tr><tr><td>Ruta del stream</td><td><input id='g220route' value='/stream' maxlength='80'></td></tr><tr><td>Estado</td><td><b id='g220state'>SIN CONSULTAR</b></td></tr></table><div style='display:flex;gap:8px;flex-wrap:wrap'><button type='button' onclick='g220save()'>GUARDAR VIDEO</button><button type='button' onclick='g220load()'>ACTUALIZAR VIDEO</button></div><small id='g220msg'>Parametros guardados por Gateway. La recepcion de cuadros se habilitara al validar el endpoint real de KORVO.</small></div>\
 <small>V2.5 uses only reciprocal IP configuration for control. MAC, hostname and location are diagnostic only. CONTROL becomes OK when a WebSocket arrives from the configured KORVO IP.</small></div>\
 </div>\
 <div style='max-width:700px;margin:1.25rem auto'><button id='gwSaveAllBtn' type='button' class='ok-button' onclick='gwSaveAll()'>Guardar y reiniciar</button><div id='gwSaveAllMsg' class='gw-status' role='status'></div></div>\
@@ -165,6 +166,28 @@ var gwEditableIds=['gwLocalName','gwLocation','gwLocalHost','gwPeerIp'];\
 function gwSetInput(id,v){var el=document.getElementById(id);if(!el)return;if(document.activeElement===el||el.dataset.dirty==='1')return;el.value=v||'';}\
 function gwClearDirty(ids){ids.forEach(function(id){var el=document.getElementById(id);if(el)delete el.dataset.dirty;});}\
 function gwInitEditable(){gwEditableIds.forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',function(){this.dataset.dirty='1';});});}\
+async function g220load(){\
+ const state=document.getElementById('g220state');if(!state)return;\
+ try{const r=await fetch('/api/gw/video',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);\
+ const d=await r.json();if(!d.ok)throw Error(d.error||'API');\
+ document.getElementById('g220ip').textContent=d.ip||'-';\
+ document.getElementById('g220enable').value=d.enabled?'1':'0';\
+ document.getElementById('g220port').value=d.port;\
+ document.getElementById('g220route').value=d.route;\
+ state.textContent=d.status;\
+ }catch(e){state.textContent='ERROR: '+e.message}\
+}\
+async function g220save(){\
+ const msg=document.getElementById('g220msg');\
+ const data=new URLSearchParams({enabled:document.getElementById('g220enable').value,\
+ port:document.getElementById('g220port').value,route:document.getElementById('g220route').value});\
+ try{const r=await fetch('/api/gw/video',{method:'POST',\
+ headers:{'Content-Type':'application/x-www-form-urlencoded'},body:data});\
+ const d=await r.json();if(!d.ok)throw Error(d.error||'Error');\
+ msg.textContent='Configuracion guardada en NVS';await g220load();\
+ }catch(e){msg.textContent='ERROR: '+e.message}\
+}\
+document.addEventListener('DOMContentLoaded',g220load);\
 async function gwLoadEnrollment(){try{var r=await fetch('/api/gw/status',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);var j=await r.json(),d=j.data||{},e=d.enrollment||{},l=e.local||{},p=e.expected_peer||{},o=e.observed_peer||{};gwSetInput('gwLocalName',l.name||'');gwSetInput('gwLocation',l.location||'');gwSetInput('gwLocalHost',l.hostname||'');document.getElementById('gwLocalIp').textContent=l.ip||'-';document.getElementById('gwLocalMac').textContent=l.mac||'-';if(p.ip)gwSetInput('gwPeerIp',p.ip);document.getElementById('gwPeerName').textContent=o.name||p.name||'-';document.getElementById('gwPeerHost').textContent=o.hostname||p.hostname||'-';document.getElementById('gwPeerLocation').textContent=o.location||p.location||'-';document.getElementById('gwObservedIp').textContent=o.ip||'-';var paired=e.paired?'PAIRED':'NOT PAIRED';var pc=e.control_ok?'CONTROL OK':'CONTROL BLOCKED';document.getElementById('gwEnrollState').innerHTML='Configured KORVO: <b>'+(p.ip||'-')+'</b> · State: <b style=color:'+(e.gateway_ok?'#4caf50':'#ffb300')+'>'+paired+'</b><br>Live IP match: <b style=color:'+(e.session_ip_ok?'#4caf50':'#ff5252')+'>'+(e.session_ip_ok?'YES':'NO')+'</b> · <b style=color:'+(e.control_ok?'#4caf50':'#ff5252')+'>'+pc+'</b>';}catch(x){document.getElementById('gwEnrollState').textContent='Pairing status unavailable: '+x.message;}}\
 async function gwSaveAll(){try{var b=document.getElementById('gwSaveAllBtn'),m=document.getElementById('gwSaveAllMsg');b.disabled=true;m.textContent='Validando y guardando configuracion...';var p=new URLSearchParams();['gwNetworkAp','gwNetworkIp','gwNetworkDhcp','gwPcapForm','gwRcForm'].forEach(function(id){new FormData(document.getElementById(id)).forEach(function(v,k){p.set(k,v);});});['ap_enable','ap_open','ap_hidden','rc_bind_ap','rc_bind_eth'].forEach(function(k){if(!p.has(k))p.set(k,'0');});p.set('local_name',document.getElementById('gwLocalName').value);p.set('location',document.getElementById('gwLocation').value);p.set('hostname',document.getElementById('gwLocalHost').value);p.set('peer_ip',document.getElementById('gwPeerIp').value);var r=await fetch('/api/gw/config-all',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p});var j=await r.json();if(!r.ok||!j.ok)throw new Error(j.error||('HTTP '+r.status));m.textContent='Configuracion guardada en NVS. Reiniciando Gateway...';setTimeout(function(){location.reload();},12000);}catch(e){document.getElementById('gwSaveAllMsg').textContent='No se guardo: '+e.message;document.getElementById('gwSaveAllBtn').disabled=false;}}\
 async function gwVerify(){var box=document.getElementById('gwEnrollState');box.textContent='Verifying configured KORVO IP...';try{var r=await fetch('/api/gw/verify',{method:'POST'});var j=await r.json();if(!j.ok&&j.error){box.innerHTML='<b style=color:#ff5252>'+j.error+'</b>';return;}var q=j.probe||{},id=q.identity||{};box.innerHTML='KORVO <b>'+(j.target_ip||'-')+'</b> · '+((q.state||'').toUpperCase())+' · '+(id.name||id.hostname||'')+'<br>CONTROL becomes OK automatically when that same IP opens the KORVO WebSocket.';gwLoadEnrollment();}catch(x){box.textContent='Verify error: '+x.message;}}\
