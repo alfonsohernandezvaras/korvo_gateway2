@@ -49,6 +49,34 @@ static void parse_rtp_offer(const char *msg,char ip[16],uint16_t *port){
         snprintf(ip,16,"%s",candidate);*port=(uint16_t)p;
     }
 }
+/* G2-19 VIDEO SDP DIAGNOSTIC: no aceptar video sin encoder RTP. */
+static bool g219_video_offer(const char *msg, char *payloads, size_t cap){
+    payloads[0]=0;
+    const char *body=strstr(msg,"\r\n\r\n");
+    if(!body)return false;
+    const char *line=body+4;
+    while(*line){
+        const char *end=strstr(line,"\r\n");
+        size_t len=end?(size_t)(end-line):strlen(line);
+        if(len>=8 && !strncmp(line,"m=video ",8)){
+            char tmp[256]={0},proto[32]={0}; unsigned port=0;
+            if(len>=sizeof(tmp))return false;
+            memcpy(tmp,line,len);
+            int offset=0;
+            if(sscanf(tmp,"m=video %u %31s %n",&port,proto,&offset)<2)return false;
+            if(strcmp(proto,"RTP/AVP") || offset<=0 || !tmp[offset]){
+                ESP_LOGW(TAG,"G2-19 video offered with unsupported profile %s",proto);
+                return false;
+            }
+            snprintf(payloads,cap,"%s",tmp+offset);
+            ESP_LOGI(TAG,"G2-19 VIDEO OFFER port=%u profile=%s payloads=%s; video bridge pending",port,proto,payloads);
+            return true;
+        }
+        if(!end)break;
+        line=end+2;
+    }
+    return false;
+}
 static void send_reply(int fd,const struct sockaddr_in *peer,const char *request,
                        int code,const char *reason,const char *local_ip,bool sdp){
     char via[1200]="",from[512]="",to[512]="",cid[160]="",cseq[100]="";
@@ -70,6 +98,14 @@ static void send_reply(int fd,const struct sockaddr_in *peer,const char *request
     char body[512]="";
     if(sdp)snprintf(body,sizeof(body),
         "v=0\r\no=Gateway2 1 1 IN IP4 %s\r\ns=Gateway2 signalling only\r\nc=IN IP4 %s\r\nt=0 0\r\nm=audio 40000 RTP/AVP 0\r\na=sendrecv\r\n",local_ip,local_ip);
+    /* Respuesta SDP con m=video 0: rechazar solo video; preservar audio PCMU. */
+    if(sdp){
+        char pts[160];
+        if(g219_video_offer(request,pts,sizeof(pts))){
+            size_t used=strlen(body);
+            snprintf(body+used,sizeof(body)-used,"m=video 0 RTP/AVP %s\r\n",pts);
+        }
+    }
     char *response=malloc(2300);
     if(!response){ESP_LOGE(TAG,"SIP response malloc failed");return;}
     int n=snprintf(response,2300,
@@ -172,6 +208,10 @@ static void in_task(void *arg){
                         send_reply(fd,&peer,rx,486,"Busy Here",localip,false);continue;
                     }
                     if(same){send_reply(fd,&peer,rx,answered?200:180,answered?"OK":"Ringing",localip,answered);continue;}
+                    /* G2-19: diagnostico video SDP entrante. */
+                    char g219_pts[160];
+                    if(!g219_video_offer(rx,g219_pts,sizeof(g219_pts)))
+                        ESP_LOGI(TAG,"G2-19 INVITE without compatible RTP/AVP video offer");
                     /* G2-14: only accept plain RTP/AVP PCMU offers. */
                     const char *offer=strstr(rx,"\r\n\r\n");
                     const char *media=offer?strstr(offer+4,"m=audio "):NULL;
