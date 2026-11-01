@@ -178,6 +178,14 @@ static void in_task(void *arg){
                 else ESP_LOGW(TAG,"SIP Call-ID ausente");
                 if(diag_cseq)ESP_LOGI(TAG,"SIP CSeq %.*s",(int)strcspn(diag_cseq+5,"\r\n"),diag_cseq+5);
                 else ESP_LOGW(TAG,"SIP CSeq ausente");
+                /* G2-20: responder OPTIONS incluso con llamada activa.
+                   No alterar estado de INVITE, ACK, RTP ni control de acceso. */
+                if(!strncmp(rx,"OPTIONS ",8)){
+                    send_reply(fd,&peer,rx,200,"OK",localip,false);
+                    ESP_LOGI(TAG,"G2-20 OPTIONS 200 OK -> %s:%u",
+                             inet_ntoa(peer.sin_addr),(unsigned)ntohs(peer.sin_port));
+                    continue;
+                }
                 char cid[160]="";header(rx,"Call-ID",cid,sizeof(cid));
                 bool same=active && !strcmp(cid,callid) && peer.sin_addr.s_addr==caller.sin_addr.s_addr;
                 /* G2-13 dialog match: ACK/BYE can arrive directly from Linphone,

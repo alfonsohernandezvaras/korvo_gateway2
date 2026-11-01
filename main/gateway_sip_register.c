@@ -118,7 +118,7 @@ static bool register_once(const gateway_sip_config_t *c){
         if(!send_register(fd,c,localip,(unsigned)(step+1),callid,step?challenge:NULL))break;
         int n=recv(fd,reply,sizeof(reply)-1,0);if(n<=0)break;reply[n]=0;
         int code=status_code(reply);
-        if(code==200){ok=true;break;}
+        if(code==200){ESP_LOGI(TAG,"G2-20 REGISTER 200 OK confirmado");ok=true;break;}
         if(step==0&&code==401&&header_value(reply,"WWW-Authenticate",challenge,sizeof(challenge))){continue;}
         ESP_LOGW(TAG,"REGISTER rejected SIP %d",code);break;
     }
@@ -149,7 +149,8 @@ static void reg_task(void *arg){
                  (unsigned)esp_get_free_heap_size(),
                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
                  (unsigned)uxTaskGetStackHighWaterMark(NULL));
-        vTaskDelay(pdMS_TO_TICKS(ok?90000:10000));
+        /* G2-20: renovar a los 45 s; margen amplio ante llamadas y jitter. */
+        vTaskDelay(pdMS_TO_TICKS(ok?45000:10000));
     }
 }
 void gateway_sip_register_start(void){
