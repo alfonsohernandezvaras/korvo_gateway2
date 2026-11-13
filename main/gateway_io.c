@@ -113,7 +113,7 @@ esp_err_t gateway_beacon_flash(uint32_t on_ms, uint32_t off_ms, uint32_t cycles)
     return ESP_OK;
 }
 
-static void IRAM_ATTR wiegand_isr(void *arg)
+static void IRAM_ATTR __attribute__((unused)) wiegand_isr(void *arg)
 {
     /* Argumento codificado: reader * 2 + bit; 0/1 -> lector 1, 2/3 -> lector 2. */
     uintptr_t line = (uintptr_t)arg;
@@ -138,7 +138,7 @@ static int parity_even_u64(uint64_t v, uint8_t bits)
     return (ones & 1) == 0;
 }
 
-static void process_wiegand_frame(unsigned reader, uint64_t raw, uint8_t bits)
+static void __attribute__((unused)) process_wiegand_frame(unsigned reader, uint64_t raw, uint8_t bits)
 {
     uint32_t facility = 0;
     uint32_t card = 0;
@@ -192,21 +192,7 @@ static void gateway_input_task(void *arg)
 
     while (true) {
         int64_t now = esp_timer_get_time();
-        for (unsigned reader = 0; reader < 2; ++reader) {
-            uint64_t raw = 0;
-            uint8_t bits = 0;
-            portENTER_CRITICAL(&s_wiegand_mux);
-            wiegand_rx_t *w = &s_wiegand[reader];
-            if (w->bits && (now - w->last_us) >= (int64_t)s_cfg.wiegand_frame_gap_ms * 1000LL) {
-                raw = w->raw;
-                bits = w->bits;
-                w->raw = 0;
-                w->bits = 0;
-                w->last_us = 0;
-            }
-            portEXIT_CRITICAL(&s_wiegand_mux);
-            if (bits) process_wiegand_frame(reader, raw, bits);
-        }
+        /* RFID01: lector Wiegand delegado al controlador externo futuro. */
 
         bool rex = input_active(GW_GPIO_REX, s_cfg.rex_active_low);
         if (rex != rex_last) {
@@ -285,15 +271,7 @@ esp_err_t gateway_io_init(const gateway_io_config_t *config)
     gpio_set_level(GW_GPIO_DOOR_RELAY, output_level(false, s_cfg.relay_active_high));
     gpio_set_level(GW_GPIO_BEACON, output_level(false, s_cfg.beacon_active_high));
 
-    gpio_config_t wg_in = {
-        .pin_bit_mask = (1ULL << GW_GPIO_WIEGAND_D0_IN) | (1ULL << GW_GPIO_WIEGAND_D1_IN) |
-                        (1ULL << GW_GPIO_WIEGAND_D0_OUT) | (1ULL << GW_GPIO_WIEGAND_D1_OUT),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE, /* GPIO35/36 have no internal pullups */
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_NEGEDGE,
-    };
-    ESP_RETURN_ON_ERROR(gpio_config(&wg_in), TAG, "Wiegand gpio_config");
+    /* RFID01: GPIO35/36/5/17 sin configuracion Wiegand. */
 
     gpio_config_t inputs = {
         .pin_bit_mask = (1ULL << GW_GPIO_REX) | (1ULL << GW_GPIO_DOOR_SENSOR),
@@ -317,10 +295,7 @@ esp_err_t gateway_io_init(const gateway_io_config_t *config)
     esp_err_t isr_err = gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
     if (isr_err == ESP_OK) s_isr_service_owned = true;
     else if (isr_err != ESP_ERR_INVALID_STATE) return isr_err;
-    ESP_RETURN_ON_ERROR(gpio_isr_handler_add(GW_GPIO_WIEGAND_D0_IN, wiegand_isr, (void *)(uintptr_t)0), TAG, "D0 ISR");
-    ESP_RETURN_ON_ERROR(gpio_isr_handler_add(GW_GPIO_WIEGAND_D1_IN, wiegand_isr, (void *)(uintptr_t)1), TAG, "D1 ISR");
-    ESP_RETURN_ON_ERROR(gpio_isr_handler_add(GW_GPIO_WIEGAND_D0_OUT, wiegand_isr, (void *)(uintptr_t)2), TAG, "reader2 D0 ISR");
-    ESP_RETURN_ON_ERROR(gpio_isr_handler_add(GW_GPIO_WIEGAND_D1_OUT, wiegand_isr, (void *)(uintptr_t)3), TAG, "reader2 D1 ISR");
+    /* RFID01: sin interrupciones de lectores fisicos. */
 
     s_relay_timer = xTimerCreate("gw_relay", pdMS_TO_TICKS(5000), pdFALSE, NULL, relay_timer_cb);
     if (!s_relay_timer) return ESP_ERR_NO_MEM;

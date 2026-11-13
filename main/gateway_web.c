@@ -28,6 +28,8 @@
 #include <strings.h>
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_flash.h"
+#include "sdkconfig.h"
 #include "esp_timer.h"
 #include "lwip/sockets.h"
 #include "lwip/inet.h"
@@ -577,7 +579,15 @@ static esp_err_t diag_api_post(httpd_req_t *req)
     form_value(body, "action", action, sizeof(action));
 
     if (!strcmp(action, "wiegand")) gateway_diag_sim_wiegand_reader((uint8_t)form_long(body,"reader",1),(uint8_t)form_long(body,"format",26),(uint32_t)form_long(body,"facility",0),(uint32_t)form_long(body,"card",0),"");
-    else if (!strcmp(action, "rex_on")) gateway_diag_sim_rex(true);
+    else if (!strcmp(action, "rfid01")) {
+         char id[48]={0}; form_value(body,"id",id,sizeof(id));
+         unsigned reader=(unsigned)form_long(body,"reader",1);
+         if(reader<1 || reader>2 || !id[0]) return send_json(req,"{\"ok\":false,\"error\":\"invalid_credential\"}");
+         for(size_t i=0;id[i];i++) if(!isalnum((unsigned char)id[i]) && id[i]!='_' && id[i]!='-' && id[i]!=':' ) return send_json(req,"{\"ok\":false,\"error\":\"invalid_credential\"}");
+         char payload[180]; snprintf(payload,sizeof(payload),"{\"reader\":%u,\"id\":\"%s\",\"source\":\"simulator\"}",reader,id);
+         gateway_event_emit("reader.card",payload,true);
+     }
+     else if (!strcmp(action, "rex_on")) gateway_diag_sim_rex(true);
     else if (!strcmp(action, "rex_off")) gateway_diag_sim_rex(false);
     else if (!strcmp(action, "door_open")) gateway_diag_sim_door(true);
     else if (!strcmp(action, "door_closed")) gateway_diag_sim_door(false);
@@ -715,7 +725,15 @@ static esp_err_t gw_map_api_post(httpd_req_t *req)
 }
 
 #include "gateway_gpio_v64_page.inc"
+static esp_err_t gw_rfid01_resources(httpd_req_t *req) {
+ if(require_auth(req)!=ESP_OK)return ESP_OK;
+ uint32_t flash=0; esp_flash_get_size(esp_flash_default_chip,&flash);
+ char b[240]; snprintf(b,sizeof(b),"{\"cpu_mhz\":%u,\"heap_free\":%u,\"heap_min\":%u,\"flash_bytes\":%u,\"uptime_s\":%lu}",(unsigned)CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,(unsigned)esp_get_free_heap_size(),(unsigned)esp_get_minimum_free_heap_size(),(unsigned)flash,(unsigned long)(esp_timer_get_time()/1000000LL));
+ return send_json(req,b);
+}
+
 static const httpd_uri_t URI_MAP_PAGE = {.uri="/gpio-map",.method=HTTP_GET,.handler=gw_map_page};
+static const httpd_uri_t URI_RFID01_RES = {.uri="/api/gw/rfid01/resources",.method=HTTP_GET,.handler=gw_rfid01_resources};
 static const httpd_uri_t URI_MAP_GET = {.uri="/api/gw/map",.method=HTTP_GET,.handler=gw_map_api_get};
 static const httpd_uri_t URI_MAP_POST = {.uri="/api/gw/map",.method=HTTP_POST,.handler=gw_map_api_post};
 
@@ -801,7 +819,7 @@ esp_err_t gateway_web_register(httpd_handle_t server)
 {
     if (!server) return ESP_ERR_INVALID_ARG;
     esp_err_t e = ESP_OK;
-    const httpd_uri_t *uris[] = {&URI_STATUS,&URI_IDENTITY,&URI_VERIFY,&URI_ENROLL,&URI_CONFIG_ALL,&URI_SIP_PAGE,&URI_SIP_GET,&URI_SIP_POST,&URI_DIAG_PAGE,&URI_DIAG_POST,&URI_MAP_PAGE,&URI_MAP_GET,&URI_MAP_POST,&URI_GPIO_LIVE,&G220_VIDEO_GET,&G220_VIDEO_POST};
+    const httpd_uri_t *uris[] = {&URI_STATUS,&URI_IDENTITY,&URI_VERIFY,&URI_ENROLL,&URI_CONFIG_ALL,&URI_SIP_PAGE,&URI_SIP_GET,&URI_SIP_POST,&URI_DIAG_PAGE,&URI_DIAG_POST,&URI_MAP_PAGE,&URI_RFID01_RES,&URI_MAP_GET,&URI_MAP_POST,&URI_GPIO_LIVE,&G220_VIDEO_GET,&G220_VIDEO_POST};
     for (size_t i=0;i<sizeof(uris)/sizeof(uris[0]);++i) {
         esp_err_t r=httpd_register_uri_handler(server,uris[i]);
         if (r!=ESP_OK) { ESP_LOGE(TAG,"Failed URI %s: %s",uris[i]->uri,esp_err_to_name(r)); e=r; }
