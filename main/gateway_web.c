@@ -5,6 +5,8 @@
 #include "gateway_enrollment.h"
 #include "gateway_services.h"
 #include "gateway_diag.h"
+#include "gateway_io.h"
+#include "driver/gpio.h"
 #include "gateway_events.h"
 #include "gateway_wifi.h"
 #include "gateway_discovery.h"
@@ -20,6 +22,7 @@
 #include <ctype.h>
 
 #include <stdio.h>
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -783,11 +786,22 @@ static esp_err_t g220_video_post(httpd_req_t *req)
 static const httpd_uri_t G220_VIDEO_GET={.uri="/api/gw/video",.method=HTTP_GET,.handler=g220_video_get};
 static const httpd_uri_t G220_VIDEO_POST={.uri="/api/gw/video",.method=HTTP_POST,.handler=g220_video_post};
 
+static esp_err_t gpio_live_get(httpd_req_t *req) {
+ if(require_auth(req)!=ESP_OK)return ESP_OK;
+ const int pins[]={5,17,32,33,39,36,14,35,4};
+ uint32_t e[4]={0}; gateway_io_live_edges(e);
+ char b[512]; int n=snprintf(b,sizeof(b),"{\"ok\":true,\"levels\":{");
+ for(int i=0;i<9;i++) n+=snprintf(b+n,sizeof(b)-(size_t)n,"%s\"%d\":%d",i?",":"",pins[i],gpio_get_level((gpio_num_t)pins[i]));
+ snprintf(b+n,sizeof(b)-(size_t)n,"},\"edges\":{\"35\":%" PRIu32 ",\"36\":%" PRIu32 ",\"5\":%" PRIu32 ",\"17\":%" PRIu32 "}}",e[0],e[1],e[2],e[3]);
+ return send_json(req,b);
+}
+static const httpd_uri_t URI_GPIO_LIVE={.uri="/api/gw/gpio-live",.method=HTTP_GET,.handler=gpio_live_get};
+
 esp_err_t gateway_web_register(httpd_handle_t server)
 {
     if (!server) return ESP_ERR_INVALID_ARG;
     esp_err_t e = ESP_OK;
-    const httpd_uri_t *uris[] = {&URI_STATUS,&URI_IDENTITY,&URI_VERIFY,&URI_ENROLL,&URI_CONFIG_ALL,&URI_SIP_PAGE,&URI_SIP_GET,&URI_SIP_POST,&URI_DIAG_PAGE,&URI_DIAG_POST,&URI_MAP_PAGE,&URI_MAP_GET,&URI_MAP_POST,&G220_VIDEO_GET,&G220_VIDEO_POST};
+    const httpd_uri_t *uris[] = {&URI_STATUS,&URI_IDENTITY,&URI_VERIFY,&URI_ENROLL,&URI_CONFIG_ALL,&URI_SIP_PAGE,&URI_SIP_GET,&URI_SIP_POST,&URI_DIAG_PAGE,&URI_DIAG_POST,&URI_MAP_PAGE,&URI_MAP_GET,&URI_MAP_POST,&URI_GPIO_LIVE,&G220_VIDEO_GET,&G220_VIDEO_POST};
     for (size_t i=0;i<sizeof(uris)/sizeof(uris[0]);++i) {
         esp_err_t r=httpd_register_uri_handler(server,uris[i]);
         if (r!=ESP_OK) { ESP_LOGE(TAG,"Failed URI %s: %s",uris[i]->uri,esp_err_to_name(r)); e=r; }

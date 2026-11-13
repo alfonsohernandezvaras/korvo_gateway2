@@ -22,6 +22,7 @@ static TimerHandle_t s_relay_timer;
 static portMUX_TYPE s_wiegand_mux = portMUX_INITIALIZER_UNLOCKED;
 typedef struct { volatile uint64_t raw; volatile uint8_t bits; volatile int64_t last_us; } wiegand_rx_t;
 static wiegand_rx_t s_wiegand[2];
+static volatile uint32_t s_live_edges[4];
 static bool s_isr_service_owned;
 
 static inline int output_level(bool active, bool active_high)
@@ -120,6 +121,7 @@ static void IRAM_ATTR wiegand_isr(void *arg)
     unsigned bit = (unsigned)(line & 1U);
     if (reader >= 2) return;
     portENTER_CRITICAL_ISR(&s_wiegand_mux);
+    ++s_live_edges[line];
     wiegand_rx_t *w = &s_wiegand[reader];
     if (w->bits < 64) {
         w->raw = (w->raw << 1) | bit;
@@ -270,6 +272,7 @@ esp_err_t gateway_io_init(const gateway_io_config_t *config)
 
     /* V6.6: RXD/TXD ya NO son salidas; ambas lineas son entradas Wiegand lector 2. */
     memset(s_wiegand, 0, sizeof(s_wiegand));
+    memset((void*)s_live_edges, 0, sizeof(s_live_edges));
 
     gpio_config_t outputs = {
         .pin_bit_mask = (1ULL << GW_GPIO_DOOR_RELAY) | (1ULL << GW_GPIO_BEACON),
@@ -344,3 +347,5 @@ esp_err_t gateway_wiegand_tx(uint8_t format, uint32_t facility, uint32_t card)
     ESP_LOGW(TAG, "Wiegand TX no disponible: RXD/TXD reservados a lector 2 RX");
     return ESP_ERR_NOT_SUPPORTED;
 }
+
+void gateway_io_live_edges(uint32_t e[4]) { if(!e)return; portENTER_CRITICAL(&s_wiegand_mux); for(int i=0;i<4;i++)e[i]=s_live_edges[i]; portEXIT_CRITICAL(&s_wiegand_mux); }

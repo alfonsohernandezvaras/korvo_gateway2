@@ -46,6 +46,7 @@ typedef struct {
 esp_err_t gateway_io_init(const gateway_io_config_t *config);
 gateway_io_config_t gateway_io_default_config(void);
 void gateway_io_get_status(gateway_io_status_t *status);
+void gateway_io_live_edges(uint32_t e[4]);
 
 esp_err_t gateway_door_unlock(uint32_t ms);
 esp_err_t gateway_door_lock(void);
