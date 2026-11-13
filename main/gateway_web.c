@@ -624,7 +624,9 @@ static const char PAGE_CSS[] =
 ".shell{max-width:1240px;margin:auto}.top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px}.title{font-size:24px;color:#ffb300;font-weight:700}.sub{color:#999;font-size:13px}"
 ".tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 18px}.tabs a{padding:10px 16px;border:1px solid #5a4720;border-radius:8px;color:#ddd;text-decoration:none;background:#221d14}.tabs a.active{background:#ffb300;color:#1a1510;font-weight:700}"
 ".grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card{background:#242018;border:1px solid #47381d;border-radius:12px;padding:16px}.card h2{font-size:16px;color:#ffb300;margin:0 0 12px}.row{display:grid;grid-template-columns:180px 1fr;gap:10px;padding:6px 0;border-bottom:1px solid #30291d}.row:last-child{border:0}.label{color:#96918a}.ok{color:#66d17a}.bad{color:#ff6b6b}.warn{color:#ffc857}"
-"input,select{width:100%;background:#181510;color:#eee;border:1px solid #544526;border-radius:7px;padding:10px;font-size:14px}button{border:0;border-radius:8px;padding:10px 14px;background:#ffb300;color:#1a1510;font-weight:700;cursor:pointer}.danger{background:#c84d3a;color:white}.ghost{background:#393126;color:#ddd}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.msg{margin-top:10px;color:#ffcf66;font-size:13px}.wide{grid-column:1/-1}.bar{height:10px;background:#332b20;border-radius:6px;overflow:hidden}.fill{height:100%;background:#ffb300;width:0}.mono{font-family:ui-monospace,Consolas,monospace}@media(max-width:800px){.grid{grid-template-columns:1fr}.row{grid-template-columns:1fr}.wide{grid-column:auto}}</style>";
+"input,select{width:100%;background:#181510;color:#eee;border:1px solid #544526;border-radius:7px;padding:10px;font-size:14px}button{border:0;border-radius:8px;padding:10px 14px;background:#ffb300;color:#1a1510;font-weight:700;cursor:pointer}.danger{background:#c84d3a;color:white}.ghost{background:#393126;color:#ddd}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.msg{margin-top:10px;color:#ffcf66;font-size:13px}.wide{grid-column:1/-1}.bar{height:10px;background:#332b20;border-radius:6px;overflow:hidden}.fill{height:100%;background:#ffb300;width:0}.mono{font-family:ui-monospace,Consolas,monospace}@media(max-width:800px){.grid{grid-template-columns:1fr}.row{grid-template-columns:1fr}.wide{grid-column:auto}}"
+".shell{max-width:none;margin:0}.grid{max-width:850px;gap:10px}.card{padding:10px;border-radius:9px}.row{grid-template-columns:135px minmax(0,1fr);gap:8px;padding:4px 0}.card h2{margin-bottom:8px}.top{margin-bottom:8px}.title{font-size:19px}.tabs{margin:8px 0 12px}.tabs a{padding:7px 11px}input,select{padding:7px}button{padding:8px 11px}@media(max-width:650px){.grid{grid-template-columns:1fr;max-width:100%}.row{grid-template-columns:120px minmax(0,1fr)}.wide{grid-column:auto}}/*WEB01_SIP*/"
+"</style>";
 
 static const char NAV[] =
 "<div class='tabs'><a href='/'>STATUS</a><a href='/config'>GATEWAY</a><a href='/sip'>SIP / VOIP</a><a href='/gpio-map'>GPIO SIMULADOR</a></div>";
@@ -636,7 +638,7 @@ static esp_err_t send_page_start(httpd_req_t *req, const char *title, const char
     httpd_resp_sendstr_chunk(req, title);
     httpd_resp_sendstr_chunk(req, "</title>");
     httpd_resp_sendstr_chunk(req, PAGE_CSS);
-    httpd_resp_sendstr_chunk(req, "</head><body><div class='shell'><div class='top'><div><div class='title'>KORVO Gateway V2.5</div><div class='sub'>WT32-ETH01 · Access / SIP Gateway</div></div></div>");
+    httpd_resp_sendstr_chunk(req, "</head><body><div class='shell'><div class='top'><div><div class='title'>GATEWAY SIP ACCESS CONTROL</div><div class='sub'>WT32-ETH01 · Access / SIP Gateway</div></div></div>");
     (void)active;
     httpd_resp_sendstr_chunk(req, NAV);
     return ESP_OK;
