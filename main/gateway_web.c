@@ -643,7 +643,7 @@ static const char PAGE_CSS[] =
 "</style>";
 
 static const char NAV[] =
-"<div class='tabs'><a href='/'>STATUS</a><a href='/config'>GATEWAY</a><a href='/sip'>SIP / VOIP</a><a href='/gpio-map'>GPIO SIMULADOR</a></div>";
+"<div class='tabs'><a href='/'>STATUS</a><a href='/config'>GATEWAY</a><a href='/sip'>SIP / VOIP</a><a href='/gpio-map'>GPIO / BORNERAS</a></div>";
 
 static esp_err_t send_page_start(httpd_req_t *req, const char *title, const char *active)
 {

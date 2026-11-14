@@ -8,16 +8,16 @@
 extern "C" {
 #endif
 
-/* Gateway V1 fixed GPIO contract - WT32-ETH01 / LAN8720 */
+/* GW_GPIO_MAP_WEB01_20261114 - WT32-ETH01 / LAN8720. SPI reservado, aun no inicializado. */
 #define GW_GPIO_WIEGAND_D0_IN   35
 #define GW_GPIO_WIEGAND_D1_IN   36
 #define GW_GPIO_WIEGAND_D0_OUT   5 /* RXD serigrafia, lector 2 D0 */
 #define GW_GPIO_WIEGAND_D1_OUT  17 /* TXD serigrafia, lector 2 D1 */
 #define GW_GPIO_REX               4
-#define GW_GPIO_DOOR_SENSOR      32
-#define GW_GPIO_CALL_BUTTON      39
+#define GW_GPIO_DOOR_SENSOR      39
+#define GW_GPIO_CALL_BUTTON      (-1) /* sin entrada fisica; llamada por KORVO */
 #define GW_GPIO_DOOR_RELAY       33
-#define GW_GPIO_BEACON           14
+#define GW_GPIO_BEACON           32
 
 #define GW_GPIO_RESERVED_1        2
 #define GW_GPIO_RESERVED_2       15

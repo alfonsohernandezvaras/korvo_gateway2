@@ -1,0 +1,326 @@
+#include "gateway_io.h"
+#include "gateway_events.h"
+
+#include <inttypes.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "driver/gpio.h"
+#include "esp_check.h"
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "esp_rom_sys.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/timers.h"
+
+static const char *TAG = "gateway_io";
+static gateway_io_config_t s_cfg;
+static gateway_io_status_t s_status;
+static TimerHandle_t s_relay_timer;
+static portMUX_TYPE s_wiegand_mux = portMUX_INITIALIZER_UNLOCKED;
+typedef struct { volatile uint64_t raw; volatile uint8_t bits; volatile int64_t last_us; } wiegand_rx_t;
+static wiegand_rx_t s_wiegand[2];
+static volatile uint32_t s_live_edges[4];
+static bool s_isr_service_owned;
+
+static inline int output_level(bool active, bool active_high)
+{
+    return (active == active_high) ? 1 : 0;
+}
+
+static void emit_simple_state(const char *name, bool simulated)
+{
+    gateway_event_emit(name, "{}", simulated);
+}
+
+static void set_relay_internal(bool on, bool emit)
+{
+    gpio_set_level(GW_GPIO_DOOR_RELAY, output_level(on, s_cfg.relay_active_high));
+    bool changed = (s_status.relay_on != on);
+    s_status.relay_on = on;
+    if (emit && changed) emit_simple_state(on ? "door.relay_on" : "door.relay_off", false);
+}
+
+static void relay_timer_cb(TimerHandle_t timer)
+{
+    (void)timer;
+    set_relay_internal(false, true);
+}
+
+esp_err_t gateway_door_unlock(uint32_t ms)
+{
+    if (ms == 0) ms = 5000;
+    set_relay_internal(true, true);
+    if (s_relay_timer) {
+        xTimerStop(s_relay_timer, 0);
+        xTimerChangePeriod(s_relay_timer, pdMS_TO_TICKS(ms), 0);
+        xTimerStart(s_relay_timer, 0);
+    }
+    return ESP_OK;
+}
+
+esp_err_t gateway_door_lock(void)
+{
+    if (s_relay_timer) xTimerStop(s_relay_timer, 0);
+    set_relay_internal(false, true);
+    return ESP_OK;
+}
+
+esp_err_t gateway_beacon_set(bool on)
+{
+    gpio_set_level(GW_GPIO_BEACON, output_level(on, s_cfg.beacon_active_high));
+    bool changed = (s_status.beacon_on != on);
+    s_status.beacon_on = on;
+    if (changed) gateway_event_emit(on ? "beacon.on" : "beacon.off", "{}", false);
+    return ESP_OK;
+}
+
+typedef struct {
+    uint32_t on_ms;
+    uint32_t off_ms;
+    uint32_t cycles;
+} beacon_flash_args_t;
+
+static void beacon_flash_task(void *arg)
+{
+    beacon_flash_args_t cfg = *(beacon_flash_args_t *)arg;
+    free(arg);
+    for (uint32_t i = 0; i < cfg.cycles; ++i) {
+        gateway_beacon_set(true);
+        vTaskDelay(pdMS_TO_TICKS(cfg.on_ms));
+        gateway_beacon_set(false);
+        if (i + 1 < cfg.cycles) vTaskDelay(pdMS_TO_TICKS(cfg.off_ms));
+    }
+    vTaskDelete(NULL);
+}
+
+esp_err_t gateway_beacon_flash(uint32_t on_ms, uint32_t off_ms, uint32_t cycles)
+{
+    if (!on_ms) on_ms = 500;
+    if (!off_ms) off_ms = 500;
+    if (!cycles) cycles = 3;
+    if (cycles > 100) cycles = 100;
+
+    beacon_flash_args_t *args = malloc(sizeof(*args));
+    if (!args) return ESP_ERR_NO_MEM;
+    *args = (beacon_flash_args_t){ .on_ms = on_ms, .off_ms = off_ms, .cycles = cycles };
+    if (xTaskCreate(beacon_flash_task, "gw_beacon", 2048, args, 5, NULL) != pdPASS) {
+        free(args);
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+}
+
+static void IRAM_ATTR __attribute__((unused)) wiegand_isr(void *arg)
+{
+    /* Argumento codificado: reader * 2 + bit; 0/1 -> lector 1, 2/3 -> lector 2. */
+    uintptr_t line = (uintptr_t)arg;
+    unsigned reader = (unsigned)(line >> 1);
+    unsigned bit = (unsigned)(line & 1U);
+    if (reader >= 2) return;
+    portENTER_CRITICAL_ISR(&s_wiegand_mux);
+    ++s_live_edges[line];
+    wiegand_rx_t *w = &s_wiegand[reader];
+    if (w->bits < 64) {
+        w->raw = (w->raw << 1) | bit;
+        w->bits++;
+        w->last_us = esp_timer_get_time();
+    }
+    portEXIT_CRITICAL_ISR(&s_wiegand_mux);
+}
+
+static int parity_even_u64(uint64_t v, uint8_t bits)
+{
+    int ones = 0;
+    for (uint8_t i = 0; i < bits; ++i) ones += (v >> i) & 1U;
+    return (ones & 1) == 0;
+}
+
+static void __attribute__((unused)) process_wiegand_frame(unsigned reader, uint64_t raw, uint8_t bits)
+{
+    uint32_t facility = 0;
+    uint32_t card = 0;
+    const char *parity = "unchecked";
+
+    if (bits == 26) {
+        uint32_t data = (uint32_t)((raw >> 1) & 0xFFFFFFU);
+        facility = (data >> 16) & 0xFFU;
+        card = data & 0xFFFFU;
+        uint32_t first12 = (data >> 12) & 0xFFFU;
+        uint32_t last12 = data & 0xFFFU;
+        int p_even = (raw >> 25) & 1U;
+        int p_odd = raw & 1U;
+        bool ok = (parity_even_u64(((uint64_t)p_even << 12) | first12, 13) &&
+                   !parity_even_u64(((uint64_t)last12 << 1) | p_odd, 13));
+        parity = ok ? "ok" : "bad";
+    } else if (bits == 34) {
+        uint32_t data = (uint32_t)((raw >> 1) & 0xFFFFFFFFULL);
+        facility = (data >> 16) & 0xFFFFU;
+        card = data & 0xFFFFU;
+    }
+
+    s_status.last_wiegand_bits = bits;
+    s_status.last_wiegand_raw = raw;
+
+    char payload[256];
+    snprintf(payload, sizeof(payload),
+             "{\"reader\":%u,\"format\":%u,\"facility\":%" PRIu32 ",\"card\":%" PRIu32 ",\"raw\":\"%0*llX\",\"parity\":\"%s\",\"source\":\"gpio\"}",
+             reader + 1, bits, facility, card, (bits + 3) / 4, (unsigned long long)raw, parity);
+    gateway_event_emit("reader.card", payload, false);
+}
+
+static bool input_active(int gpio, bool active_low)
+{
+    int level = gpio_get_level(gpio);
+    return active_low ? (level == 0) : (level != 0);
+}
+
+static void gateway_input_task(void *arg)
+{
+    (void)arg;
+    bool rex_last = input_active(GW_GPIO_REX, s_cfg.rex_active_low);
+    bool door_last = (gpio_get_level(GW_GPIO_DOOR_SENSOR) != 0) == s_cfg.door_open_high;
+    bool call_last = input_active(GW_GPIO_CALL_BUTTON, s_cfg.call_active_low);
+    int64_t call_pressed_us = call_last ? esp_timer_get_time() : 0;
+    bool long_sent = false;
+
+    s_status.rex_active = rex_last;
+    s_status.door_open = door_last;
+    s_status.call_pressed = call_last;
+
+    while (true) {
+        int64_t now = esp_timer_get_time();
+        /* RFID01: lector Wiegand delegado al controlador externo futuro. */
+
+        bool rex = input_active(GW_GPIO_REX, s_cfg.rex_active_low);
+        if (rex != rex_last) {
+            rex_last = rex;
+            s_status.rex_active = rex;
+            emit_simple_state(rex ? "rex.active" : "rex.inactive", false);
+        }
+
+        bool door_open = (gpio_get_level(GW_GPIO_DOOR_SENSOR) != 0) == s_cfg.door_open_high;
+        if (door_open != door_last) {
+            door_last = door_open;
+            s_status.door_open = door_open;
+            emit_simple_state(door_open ? "door.open" : "door.closed", false);
+        }
+
+        bool call = input_active(GW_GPIO_CALL_BUTTON, s_cfg.call_active_low);
+        if (call != call_last) {
+            call_last = call;
+            s_status.call_pressed = call;
+            if (call) {
+                call_pressed_us = now;
+                long_sent = false;
+            } else {
+                int64_t held_ms = call_pressed_us ? (now - call_pressed_us) / 1000LL : 0;
+                if (!long_sent) {
+                    char payload[96];
+                    snprintf(payload, sizeof(payload), "{\"held_ms\":%lld}", (long long)held_ms);
+                    gateway_event_emit("call.short_press", payload, false);
+                }
+                call_pressed_us = 0;
+                long_sent = false;
+            }
+        }
+        if (call && !long_sent && call_pressed_us &&
+            (now - call_pressed_us) >= (int64_t)s_cfg.call_long_press_ms * 1000LL) {
+            char payload[96];
+            snprintf(payload, sizeof(payload), "{\"held_ms\":%lu}", (unsigned long)s_cfg.call_long_press_ms);
+            gateway_event_emit("call.long_press", payload, false);
+            long_sent = true;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+gateway_io_config_t gateway_io_default_config(void)
+{
+    return (gateway_io_config_t){
+        .rex_active_low = true,
+        .door_open_high = true,
+        .call_active_low = true,
+        .relay_active_high = true,
+        .beacon_active_high = true,
+        .call_long_press_ms = 2000,
+        .wiegand_frame_gap_ms = 30,
+    };
+}
+
+esp_err_t gateway_io_init(const gateway_io_config_t *config)
+{
+    s_cfg = config ? *config : gateway_io_default_config();
+    memset(&s_status, 0, sizeof(s_status));
+
+    /* V6.6: RXD/TXD ya NO son salidas; ambas lineas son entradas Wiegand lector 2. */
+    memset(s_wiegand, 0, sizeof(s_wiegand));
+    memset((void*)s_live_edges, 0, sizeof(s_live_edges));
+
+    gpio_config_t outputs = {
+        .pin_bit_mask = (1ULL << GW_GPIO_DOOR_RELAY) | (1ULL << GW_GPIO_BEACON),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_RETURN_ON_ERROR(gpio_config(&outputs), TAG, "relay/beacon gpio_config");
+    gpio_set_level(GW_GPIO_DOOR_RELAY, output_level(false, s_cfg.relay_active_high));
+    gpio_set_level(GW_GPIO_BEACON, output_level(false, s_cfg.beacon_active_high));
+
+    /* RFID01: GPIO35/36/5/17 sin configuracion Wiegand. */
+
+    gpio_config_t inputs = {
+        .pin_bit_mask = (1ULL << GW_GPIO_REX) | (1ULL << GW_GPIO_DOOR_SENSOR),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_RETURN_ON_ERROR(gpio_config(&inputs), TAG, "REX/door gpio_config");
+
+    gpio_config_t call_input = {
+        .pin_bit_mask = (1ULL << GW_GPIO_CALL_BUTTON),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    /* GPIO39 has no internal pullup; external conditioning/pull resistor is required. */
+    ESP_RETURN_ON_ERROR(gpio_config(&call_input), TAG, "CALL gpio_config");
+
+    esp_err_t isr_err = gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
+    if (isr_err == ESP_OK) s_isr_service_owned = true;
+    else if (isr_err != ESP_ERR_INVALID_STATE) return isr_err;
+    /* RFID01: sin interrupciones de lectores fisicos. */
+
+    s_relay_timer = xTimerCreate("gw_relay", pdMS_TO_TICKS(5000), pdFALSE, NULL, relay_timer_cb);
+    if (!s_relay_timer) return ESP_ERR_NO_MEM;
+
+    if (xTaskCreate(gateway_input_task, "gw_inputs", 4096, NULL, 8, NULL) != pdPASS) return ESP_ERR_NO_MEM;
+
+    ESP_LOGI(TAG, "GPIO V6.6: reader1 IO35/IO36=%d/%d reader2 RXD/TXD=%d/%d REX=%d DOOR=%d CALL=%d RELAY=%d BEACON=%d",
+             GW_GPIO_WIEGAND_D0_IN, GW_GPIO_WIEGAND_D1_IN, GW_GPIO_WIEGAND_D0_OUT,
+             GW_GPIO_WIEGAND_D1_OUT, GW_GPIO_REX, GW_GPIO_DOOR_SENSOR,
+             GW_GPIO_CALL_BUTTON, GW_GPIO_DOOR_RELAY, GW_GPIO_BEACON);
+    return ESP_OK;
+}
+
+void gateway_io_get_status(gateway_io_status_t *status)
+{
+    if (status) *status = s_status;
+}
+
+/* Se conserva la API por compatibilidad binaria/fuente, pero la transmision
+ * fisica esta DESHABILITADA: RXD/TXD son exclusivamente entradas lector 2. */
+esp_err_t gateway_wiegand_tx(uint8_t format, uint32_t facility, uint32_t card)
+{
+    (void)format; (void)facility; (void)card;
+    ESP_LOGW(TAG, "Wiegand TX no disponible: RXD/TXD reservados a lector 2 RX");
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+void gateway_io_live_edges(uint32_t e[4]) { if(!e)return; portENTER_CRITICAL(&s_wiegand_mux); for(int i=0;i<4;i++)e[i]=s_live_edges[i]; portEXIT_CRITICAL(&s_wiegand_mux); }

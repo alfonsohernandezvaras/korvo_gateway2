@@ -70,6 +70,7 @@ static esp_err_t gw_map_page(httpd_req_t *req)
         ": '+level:'Nivel fisico: '+level;\n}\n}catch(e){}finally{busy=false}}\nsetInterval(poll,250);setTimeout(poll,400);\n})();\n</script>");
 #include "gateway_gpio_ui02_extra.inc"
 #include "gateway_gpio_ui03_extra.inc"
+#include "gateway_gpio_web02_extra.inc" /* GW_GPIO_MAP_WEB02_20261114 */ /* GW_GPIO_MAP_WEB01_20261114 */
     httpd_resp_sendstr_chunk(req,"</div></body></html>");
     return httpd_resp_sendstr_chunk(req,NULL);
 }

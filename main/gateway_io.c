@@ -182,13 +182,13 @@ static void gateway_input_task(void *arg)
     (void)arg;
     bool rex_last = input_active(GW_GPIO_REX, s_cfg.rex_active_low);
     bool door_last = (gpio_get_level(GW_GPIO_DOOR_SENSOR) != 0) == s_cfg.door_open_high;
-    bool call_last = input_active(GW_GPIO_CALL_BUTTON, s_cfg.call_active_low);
-    int64_t call_pressed_us = call_last ? esp_timer_get_time() : 0;
-    bool long_sent = false;
+
+    /* WEB01: llamada fisica deshabilitada; KORVO conserva eventos de llamada. */
 
     s_status.rex_active = rex_last;
     s_status.door_open = door_last;
-    s_status.call_pressed = call_last;
+
+    s_status.call_pressed = false;
 
     while (true) {
         int64_t now = esp_timer_get_time();
@@ -208,31 +208,7 @@ static void gateway_input_task(void *arg)
             emit_simple_state(door_open ? "door.open" : "door.closed", false);
         }
 
-        bool call = input_active(GW_GPIO_CALL_BUTTON, s_cfg.call_active_low);
-        if (call != call_last) {
-            call_last = call;
-            s_status.call_pressed = call;
-            if (call) {
-                call_pressed_us = now;
-                long_sent = false;
-            } else {
-                int64_t held_ms = call_pressed_us ? (now - call_pressed_us) / 1000LL : 0;
-                if (!long_sent) {
-                    char payload[96];
-                    snprintf(payload, sizeof(payload), "{\"held_ms\":%lld}", (long long)held_ms);
-                    gateway_event_emit("call.short_press", payload, false);
-                }
-                call_pressed_us = 0;
-                long_sent = false;
-            }
-        }
-        if (call && !long_sent && call_pressed_us &&
-            (now - call_pressed_us) >= (int64_t)s_cfg.call_long_press_ms * 1000LL) {
-            char payload[96];
-            snprintf(payload, sizeof(payload), "{\"held_ms\":%lu}", (unsigned long)s_cfg.call_long_press_ms);
-            gateway_event_emit("call.long_press", payload, false);
-            long_sent = true;
-        }
+        /* Pulsador fisico retirado del GPIO39; GPIO39 es sensor puerta. */
 
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -271,7 +247,7 @@ esp_err_t gateway_io_init(const gateway_io_config_t *config)
     gpio_set_level(GW_GPIO_DOOR_RELAY, output_level(false, s_cfg.relay_active_high));
     gpio_set_level(GW_GPIO_BEACON, output_level(false, s_cfg.beacon_active_high));
 
-    /* RFID01: GPIO35/36/5/17 sin configuracion Wiegand. */
+    /* GW_GPIO_MAP_WEB01_20261114: GPIO35/36/5/17 reservados SPI, sin configurar aun. */
 
     gpio_config_t inputs = {
         .pin_bit_mask = (1ULL << GW_GPIO_REX) | (1ULL << GW_GPIO_DOOR_SENSOR),
@@ -282,15 +258,7 @@ esp_err_t gateway_io_init(const gateway_io_config_t *config)
     };
     ESP_RETURN_ON_ERROR(gpio_config(&inputs), TAG, "REX/door gpio_config");
 
-    gpio_config_t call_input = {
-        .pin_bit_mask = (1ULL << GW_GPIO_CALL_BUTTON),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    /* GPIO39 has no internal pullup; external conditioning/pull resistor is required. */
-    ESP_RETURN_ON_ERROR(gpio_config(&call_input), TAG, "CALL gpio_config");
+    /* GPIO39: entrada sin pullup interno; requiere acondicionamiento externo. */
 
     esp_err_t isr_err = gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
     if (isr_err == ESP_OK) s_isr_service_owned = true;
