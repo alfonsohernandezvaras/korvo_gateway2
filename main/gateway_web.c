@@ -1,6 +1,8 @@
+/* GW_WEB03_20261114 */
 #include "gateway_web.h"
 #include "gateway_rtp_monitor.h"
 #include "gateway_protocol.h"
+#include "korvo_protocol.h"
 #include "gateway_map.h"
 #include "gateway_enrollment.h"
 #include "gateway_services.h"
@@ -643,7 +645,7 @@ static const char PAGE_CSS[] =
 "</style>";
 
 static const char NAV[] =
-"<div class='tabs'><a href='/'>STATUS</a><a href='/config'>GATEWAY</a><a href='/sip'>SIP / VOIP</a><a href='/gpio-map'>GPIO / BORNERAS</a></div>";
+"<div class='tabs'><a href='/'>STATUS</a><a href='/config'>GATEWAY</a><a href='/sip'>SIP / VOIP</a><a href='/gpio-map'>GPIO / BORNERAS</a><a href='/dictionary'>DICCIONARIO</a><a href='/config#flasheo'>FLASHEO</a></div>";
 
 static esp_err_t send_page_start(httpd_req_t *req, const char *title, const char *active)
 {
@@ -817,11 +819,130 @@ static esp_err_t gpio_live_get(httpd_req_t *req) {
 }
 static const httpd_uri_t URI_GPIO_LIVE={.uri="/api/gw/gpio-live",.method=HTTP_GET,.handler=gpio_live_get};
 
+/* GW_DICTIONARY_WEB01_20261114 - SAFE STAGING EDITOR.
+ * Does not alter KORVO protocol dispatch, hardware GPIO map or runtime word IDs.
+ * Factory source: korvo_protocol_name/direction, compiled into firmware.
+ * User overlay: gw_dict_ui namespace, validated and saved independently.
+ */
+static const uint8_t dict_editable_ids[] = {0x14,0x15,0x45,0x46};
+static const char *dict_function_names[] = {
+    "FACTORY", "ACCESS_GRANTED", "ACCESS_DENIED", "READER_CARD", "READER_STATUS", "DISABLED"
+};
+#define DICT_EDITABLE_COUNT 4
+#define DICT_FUNCTION_COUNT 6
+static void dict_defaults(uint8_t values[DICT_EDITABLE_COUNT])
+{
+    for (unsigned i=0;i<DICT_EDITABLE_COUNT;i++) values[i]=0;
+}
+static void dict_load(uint8_t values[DICT_EDITABLE_COUNT], uint32_t *revision)
+{
+    dict_defaults(values);
+    if (revision) *revision=0;
+    nvs_handle_t h;
+    if(nvs_open("gw_dict_ui",NVS_READONLY,&h)!=ESP_OK) return;
+    uint8_t ver=0;size_t size=DICT_EDITABLE_COUNT;
+    uint8_t tmp[DICT_EDITABLE_COUNT];
+    if(nvs_get_u8(h,"schema",&ver)==ESP_OK && ver==1 &&
+       nvs_get_blob(h,"assign",tmp,&size)==ESP_OK && size==DICT_EDITABLE_COUNT) {
+        bool valid=true;
+        for(unsigned i=0;i<DICT_EDITABLE_COUNT;i++) if(tmp[i]>=DICT_FUNCTION_COUNT)valid=false;
+        if(valid){memcpy(values,tmp,DICT_EDITABLE_COUNT);if(revision)nvs_get_u32(h,"revision",revision);}
+    }
+    nvs_close(h);
+}
+static esp_err_t dict_api_get(httpd_req_t *req)
+{
+    if(require_auth(req)!=ESP_OK)return ESP_OK;
+    uint8_t values[DICT_EDITABLE_COUNT];uint32_t rev=0;dict_load(values,&rev);
+    httpd_resp_set_type(req,"application/json");
+    httpd_resp_set_hdr(req,"Cache-Control","no-store");
+    char b[384];
+    snprintf(b,sizeof(b),"{\"ok\":true,\"dictionary_version\":%u,\"revision\":%lu,\"runtime_applied\":false,\"words\":[",
+        (unsigned)KORVO_PROTOCOL_DICTIONARY_VERSION,(unsigned long)rev);
+    httpd_resp_sendstr_chunk(req,b);
+    bool first=true;
+    for(unsigned id=0;id<256;id++) {
+        if(!korvo_protocol_is_valid((uint8_t)id))continue;
+        int edit=-1;
+        for(unsigned i=0;i<DICT_EDITABLE_COUNT;i++)if(dict_editable_ids[i]==id)edit=(int)i;
+        snprintf(b,sizeof(b),"%s{\"id\":%u,\"name\":\"%s\",\"direction\":%u,\"editable\":%s,\"assignment\":%u}",
+            first?"":",",id,korvo_protocol_name((korvo_message_id_t)id),
+            (unsigned)korvo_protocol_direction((korvo_message_id_t)id),edit>=0?"true":"false",
+            edit>=0?values[edit]:0);
+        httpd_resp_sendstr_chunk(req,b);first=false;
+    }
+    httpd_resp_sendstr_chunk(req,"],\"functions\":[");
+    for(unsigned i=0;i<DICT_FUNCTION_COUNT;i++){
+        snprintf(b,sizeof(b),"%s\"%s\"",i?",":"",dict_function_names[i]);
+        httpd_resp_sendstr_chunk(req,b);
+    }
+    httpd_resp_sendstr_chunk(req,"]}");
+    return httpd_resp_sendstr_chunk(req,NULL);
+}
+static esp_err_t dict_api_post(httpd_req_t *req)
+{
+    if(require_auth(req)!=ESP_OK)return ESP_OK;
+    char body[256],operation[20];
+    if(!recv_form(req,body,sizeof(body)) || !form_value(body,"action",operation,sizeof(operation)))
+        return send_json(req,"{\"ok\":false,\"error\":\"invalid_form\"}");
+    uint8_t values[DICT_EDITABLE_COUNT];uint32_t rev=0;dict_load(values,&rev);
+    if(strcmp(operation,"factory") && strcmp(operation,"save"))
+        return send_json(req,"{\"ok\":false,\"error\":\"invalid_action\"}");
+    if(!strcmp(operation,"factory"))dict_defaults(values);
+    else {
+        for(unsigned i=0;i<DICT_EDITABLE_COUNT;i++){
+            char key[12],str[12],*end=NULL;
+            snprintf(key,sizeof(key),"w%u",(unsigned)dict_editable_ids[i]);
+            if(!form_value(body,key,str,sizeof(str)))return send_json(req,"{\"ok\":false,\"error\":\"missing_word\"}");
+            long v=strtol(str,&end,10);
+            if(end==str||*end||v<0||v>=DICT_FUNCTION_COUNT)return send_json(req,"{\"ok\":false,\"error\":\"invalid_assignment\"}");
+            values[i]=(uint8_t)v;
+        }
+        /* Distinct non-factory functions cannot be assigned twice. */
+        for(unsigned i=0;i<DICT_EDITABLE_COUNT;i++)for(unsigned j=i+1;j<DICT_EDITABLE_COUNT;j++)
+            if(values[i]!=0 && values[i]!=5 && values[i]==values[j])
+                return send_json(req,"{\"ok\":false,\"error\":\"duplicate_assignment\"}");
+    }
+    nvs_handle_t h;esp_err_t e=nvs_open("gw_dict_ui",NVS_READWRITE,&h);
+    if(e!=ESP_OK)return send_json(req,"{\"ok\":false,\"error\":\"nvs_open\"}");
+    e=nvs_set_u8(h,"schema",1);
+    if(e==ESP_OK)e=nvs_set_blob(h,"assign",values,DICT_EDITABLE_COUNT);
+    if(e==ESP_OK)e=nvs_set_u32(h,"revision",rev+1);
+    if(e==ESP_OK)e=nvs_commit(h);
+    nvs_close(h);
+    return send_json(req,e==ESP_OK?"{\"ok\":true,\"runtime_applied\":false}":"{\"ok\":false,\"error\":\"nvs_save\"}");
+}
+static esp_err_t dict_page(httpd_req_t *req)
+{
+    if(!http_server_request_authenticated(req)){
+        httpd_resp_set_status(req,"303 See Other");httpd_resp_set_hdr(req,"Location","/?auth_required=1");
+        return httpd_resp_send(req,NULL,0);
+    }
+    send_page_start(req,"DICCIONARIO MAESTRO","dictionary");
+    httpd_resp_sendstr_chunk(req,
+"<style>.dict-wrap{max-width:1300px}.dict-note{padding:12px;border:1px solid #6d5223;border-radius:8px;margin:12px 0;color:#eacb83}.dict-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0}.dict-table{width:100%;border-collapse:collapse}.dict-table th,.dict-table td{padding:8px;border-bottom:1px solid #463a29;text-align:left;font-size:13px}.dict-table select{min-width:155px}.dict-table tr.locked{opacity:.7}.dict-table th{color:#ffb300}.dict-status{margin:12px 0;color:#ffcf66}</style>"
+"<div class='dict-wrap'><h2>DICCIONARIO MAESTRO · GATEWAY2</h2>"
+"<div class='dict-note'><b>EDICION PREPARATORIA:</b> las asignaciones guardadas son una propuesta persistente. No modifican todavia los comandos operativos, GPIO, SIP ni el protocolo HMI. El catalogo de fabrica permanece en firmware.</div>"
+"<div class='dict-tools'><label>Dispositivo <select id='dictFilter'><option value='all'>TODOS</option><option value='hmi'>HMI / GATEWAY</option><option value='r3'>R3 / GATEWAY (propuesto)</option></select></label><button type='button' id='dictSave'>GUARDAR MAPA</button><button type='button' class='ghost' id='dictFactory'>RESTAURAR FABRICA</button><button type='button' class='ghost' id='dictRefresh'>RECARGAR</button></div>"
+"<div id='dictStatus' class='dict-status'>Cargando diccionario...</div>"
+"<div style='overflow-x:auto'><table class='dict-table'><thead><tr><th>ID</th><th>PALABRA</th><th>DIRECCION</th><th>FUNCION ASIGNADA (PREPARACION)</th></tr></thead><tbody id='dictRows'></tbody></table></div></div>"
+"<script>(function(){let current=null;const el=id=>document.getElementById(id);const esc=s=>String(s).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));"
+"function render(){if(!current)return;let rows='';let filter=el('dictFilter').value;for(const w of current.words){if(filter==='r3'&&![64,65,66,67,69,70,71,72].includes(w.id))continue;if(filter==='hmi'&&[64,65,66,67,69,70,71,72].includes(w.id))continue;let opt=w.editable?'<select data-word=\"'+w.id+'\">'+current.functions.map((f,i)=>'<option value=\"'+i+'\" '+(w.assignment===i?'selected':'')+'>'+esc(f)+'</option>').join('')+'</select>':'<span title=\"Firmware fijo\">&#128274; FABRICA</span>';rows+='<tr class=\"'+(w.editable?'':'locked')+'\"><td>0x'+w.id.toString(16).toUpperCase().padStart(2,'0')+'</td><td>'+esc(w.name)+'</td><td>'+(['GATEWAY a HMI','HMI a GATEWAY','BIDIRECCIONAL'][w.direction]||'?')+'</td><td>'+opt+'</td></tr>';}el('dictRows').innerHTML=rows;}"
+"async function load(){let r=await fetch('/api/gw/dictionary',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);current=await r.json();render();el('dictStatus').textContent='Diccionario V'+current.dictionary_version+' · Revision editable '+current.revision+' · '+current.words.length+' palabras · NO APLICADO AL RUNTIME';}"
+"async function send(action){let body=new URLSearchParams({action});if(action==='save'){for(const s of document.querySelectorAll('[data-word]'))body.set('w'+s.dataset.word,s.value);if(current){for(const w of current.words){if(w.editable&&!body.has('w'+w.id))body.set('w'+w.id,String(w.assignment));}}}let r=await fetch('/api/gw/dictionary',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});let d=await r.json();if(!d.ok)throw Error(d.error||'Error');await load();}"
+"el('dictFilter').onchange=render;el('dictRefresh').onclick=()=>load().catch(e=>el('dictStatus').textContent=e.message);el('dictSave').onclick=()=>send('save').catch(e=>el('dictStatus').textContent=e.message);el('dictFactory').onclick=()=>{if(confirm('Restaurar asociaciones de fabrica?'))send('factory').catch(e=>el('dictStatus').textContent=e.message)};load().catch(e=>el('dictStatus').textContent=e.message);})();</script>"
+    );
+    return httpd_resp_sendstr_chunk(req,NULL);
+}
+static const httpd_uri_t URI_DICT_PAGE={.uri="/dictionary",.method=HTTP_GET,.handler=dict_page};
+static const httpd_uri_t URI_DICT_GET={.uri="/api/gw/dictionary",.method=HTTP_GET,.handler=dict_api_get};
+static const httpd_uri_t URI_DICT_POST={.uri="/api/gw/dictionary",.method=HTTP_POST,.handler=dict_api_post};
+
 esp_err_t gateway_web_register(httpd_handle_t server)
 {
     if (!server) return ESP_ERR_INVALID_ARG;
     esp_err_t e = ESP_OK;
-    const httpd_uri_t *uris[] = {&URI_STATUS,&URI_IDENTITY,&URI_VERIFY,&URI_ENROLL,&URI_CONFIG_ALL,&URI_SIP_PAGE,&URI_SIP_GET,&URI_SIP_POST,&URI_DIAG_PAGE,&URI_DIAG_POST,&URI_MAP_PAGE,&URI_RFID01_RES,&URI_MAP_GET,&URI_MAP_POST,&URI_GPIO_LIVE,&G220_VIDEO_GET,&G220_VIDEO_POST};
+    const httpd_uri_t *uris[] = {&URI_DICT_PAGE,&URI_DICT_GET,&URI_DICT_POST,&URI_STATUS,&URI_IDENTITY,&URI_VERIFY,&URI_ENROLL,&URI_CONFIG_ALL,&URI_SIP_PAGE,&URI_SIP_GET,&URI_SIP_POST,&URI_DIAG_PAGE,&URI_DIAG_POST,&URI_MAP_PAGE,&URI_RFID01_RES,&URI_MAP_GET,&URI_MAP_POST,&URI_GPIO_LIVE,&G220_VIDEO_GET,&G220_VIDEO_POST};
     for (size_t i=0;i<sizeof(uris)/sizeof(uris[0]);++i) {
         esp_err_t r=httpd_register_uri_handler(server,uris[i]);
         if (r!=ESP_OK) { ESP_LOGE(TAG,"Failed URI %s: %s",uris[i]->uri,esp_err_to_name(r)); e=r; }
