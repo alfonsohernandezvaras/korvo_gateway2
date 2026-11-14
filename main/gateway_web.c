@@ -13,6 +13,7 @@
 #include "gateway_ws.h"
 #include "http_server.h"
 #include "nvs.h"
+#include "nvs_flash.h"
 #include "router_config.h"
 #include "remote_console.h"
 #include "pcap_capture.h"
@@ -728,7 +729,8 @@ static esp_err_t gw_map_api_post(httpd_req_t *req)
 static esp_err_t gw_rfid01_resources(httpd_req_t *req) {
  if(require_auth(req)!=ESP_OK)return ESP_OK;
  uint32_t flash=0; esp_flash_get_size(esp_flash_default_chip,&flash);
- char b[240]; snprintf(b,sizeof(b),"{\"cpu_mhz\":%u,\"heap_free\":%u,\"heap_min\":%u,\"flash_bytes\":%u,\"uptime_s\":%lu}",(unsigned)CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,(unsigned)esp_get_free_heap_size(),(unsigned)esp_get_minimum_free_heap_size(),(unsigned)flash,(unsigned long)(esp_timer_get_time()/1000000LL));
+ nvs_stats_t ns={0}; esp_err_t nvs_err=nvs_get_stats(NULL,&ns);
+ char b[360]; snprintf(b,sizeof(b),"{\"cpu_mhz\":%u,\"heap_free\":%u,\"heap_min\":%u,\"flash_bytes\":%u,\"uptime_s\":%lu,\"nvs_free_entries\":%u,\"nvs_used_entries\":%u}",(unsigned)CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,(unsigned)esp_get_free_heap_size(),(unsigned)esp_get_minimum_free_heap_size(),(unsigned)flash,(unsigned long)(esp_timer_get_time()/1000000LL), (unsigned)(nvs_err==ESP_OK?ns.free_entries:0), (unsigned)(nvs_err==ESP_OK?ns.used_entries:0));
  return send_json(req,b);
 }
 

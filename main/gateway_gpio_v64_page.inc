@@ -69,6 +69,7 @@ static esp_err_t gw_map_page(httpd_req_t *req)
         "row')].find(r=>r.querySelector('.gp-pin')?.textContent.trim()===name)}\nasync function poll(){if(busy||document.hidden)return;busy=true;try{\nconst res=await fetch('/api/gw/gpio-live',{cache:'no-store'});if(!res.ok)return;const d=await res.json(),now=Date.now();\nfor(const pin of pins){const r=row(pin);if(!r)continue;const k=String(pin),level=d.levels[k],count=d.edges[k],w=wg.includes(pin);\nif(w&&count!==undefined){if(prev[k]!==undefined&&prev[k]!==count)until[k]=now+700;prev[k]=count}\nr.classList.toggle('gpl-pulse',w&&(until[k]||0)>now);\nr.classList.toggle('gpl-high',!w&&level===1);\nr.classList.toggle('gpl-low',w||level===0);\nr.querySelector('.gp-pin').title=w?'Pulsos reales: '+count+' | Nivel"
         ": '+level:'Nivel fisico: '+level;\n}\n}catch(e){}finally{busy=false}}\nsetInterval(poll,250);setTimeout(poll,400);\n})();\n</script>");
 #include "gateway_gpio_ui02_extra.inc"
+#include "gateway_gpio_ui03_extra.inc"
     httpd_resp_sendstr_chunk(req,"</div></body></html>");
     return httpd_resp_sendstr_chunk(req,NULL);
 }
