@@ -1,3 +1,4 @@
+/* G2_R3_02_CARDS */
 /* GW_WEB03_20261114 */
 /* Gateway V2.5 status page - wide desktop-first layout */
 #define INDEX_TITLE "GATEWAY SIP ACCESS CONTROL"
@@ -20,7 +21,7 @@
 <div class='card'><h2>GATEWAY</h2><div id='gwIdentity'><span class='muted'>Waiting status...</span></div></div>\
 <div class='card'><h2>WIFI LINK</h2><div id='gwWifi'><span class='muted'>Waiting status...</span></div></div>\
 <div class='card'><h2>HMI PAIRING</h2><div id='gwEnroll'><span class='muted'>Waiting status...</span></div></div>\
-<div class='card'><h2>R3 PAIRING</h2><div class='kv'><span class='k'>R3 IP</span><span class='v muted'>NO CONFIGURADO</span></div><div class='kv'><span class='k'>State</span><span class='v warn'>NOT CONFIGURED</span></div><div class='kv'><span class='k'>Control</span><span class='v bad'>BLOCKED</span></div><div class='kv'><span class='k'>Last seen</span><span class='v muted'>-</span></div></div>\
+<div class='card'><h2>R3 PAIRING</h2><div id='gwR3Status'><span class='muted'>Waiting R3 status...</span></div></div>\
 <div class='card'><h2>ACCESS I/O</h2><div id='gwAccess'><span class='muted'>Waiting status...</span></div></div>\
 <div class='card'><h2>SIP</h2><div id='gwSip'><span class='muted'>Waiting status...</span></div></div>\
 <div class='card'><h2>Bridge / Network</h2><div class='bridge-table'><table>\
@@ -47,7 +48,7 @@ let configured=!!(e.expected_peer&&e.expected_peer.ip);let live=!!e.session_ip_o
 document.getElementById('gwAccess').innerHTML=kv('Door',esc(io.door))+kv('REX',io.rex?'ACTIVE':'OFF',io.rex?'warn':'')+kv('Relay',io.relay?'ON':'OFF',io.relay?'warn':'')+kv('Beacon',io.beacon?'ON':'OFF');\
 document.getElementById('gwSip').innerHTML=kv('Engine',s.engine==='real'?'ACTIVE':'CONFIG / SIMULATION',s.engine==='real'?'ok':'warn')+kv('Registered',s.registered?'YES':'NO',s.registered?'ok':'warn')+kv('State',esc(s.state))+kv('Extension',esc(s.extension))+kv('Name',esc(s.extension_name))+kv('Central',`${esc(s.central_name)} ${esc(s.central_extension)}`)+kv('CALL mode',esc(s.call_mode));\
 }catch(err){let m=cardError('Status API unavailable · '+esc(err.message||err));['gwIdentity','gwWifi','gwEnroll','gwAccess' ,'gwSip'].forEach(id=>{let el=document.getElementById(id);if(el)el.innerHTML=m;});}}\
-gwRefresh();setInterval(gwRefresh,3000);\
+async function gwR3Refresh(){try{let r=await fetch('/api/gw/r3',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);let d=await r.json();let ip=d.configured_ip||'',state=ip?'OFFLINE':'NOT CONFIGURED';let h=kv('R3 IP',esc(ip||'NO CONFIGURADO'),ip?'ok':'warn')+kv('State',state,'warn')+kv('Control','BLOCKED','bad')+kv('Last seen','-','muted');h+=kv('Simulador',d.simulated?'SIMULATED':'OFF',d.simulated?'warn':'muted');document.getElementById('gwR3Status').innerHTML=h;}catch(e){document.getElementById('gwR3Status').textContent='R3 API: '+e.message;}}gwR3Refresh();setInterval(gwR3Refresh,3000);gwRefresh();setInterval(gwRefresh,3000);\
 </script>"
 
 #define INDEX_CHUNK_TAIL "</div></body></html>"
